@@ -30,7 +30,7 @@ function ReadCodeConfirm({ isOpen, onClose, onConfirm }: ReadCodeConfirmProps) {
           <AlertDialogHeader>Clear editor</AlertDialogHeader>
 
           <AlertDialogBody>
-            Loading sample code will clear the existing content. Would you like to continue?
+            Loading Java sample code will clear the existing content. Would you like to continue?
           </AlertDialogBody>
 
           <AlertDialogFooter>

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { VscChevronRight, VscFolderOpened, VscGist } from "react-icons/vsc";
 import useLocalStorageState from "use-local-storage-state";
 
-import rustpadRaw from "../rustpad-server/src/rustpad.rs?raw";
+import { javaSample } from "./javaSample";
 import Footer from "./Footer";
 import ReadCodeConfirm from "./ReadCodeConfirm";
 import Sidebar from "./Sidebar";
@@ -123,12 +123,12 @@ function App() {
 
       model.pushEditOperations(
         editor.getSelections(),
-        [{ range, text: rustpadRaw }],
+        [{ range, text: javaSample }],
         () => null,
       );
       editor.setPosition({ column: 0, lineNumber: 0 });
-      if (language !== "rust") {
-        handleLanguageChange("rust");
+      if (language !== "java") {
+        handleLanguageChange("java");
       }
     }
   }
