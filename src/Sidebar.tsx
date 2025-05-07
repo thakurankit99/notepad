@@ -9,11 +9,12 @@ import {
   Switch,
   Text,
   useToast,
+  Box,
+  Icon,
 } from "@chakra-ui/react";
-import { VscRepo } from "react-icons/vsc";
+import { VscRepo, VscPerson } from "react-icons/vsc";
 
 import ConnectionStatus from "./ConnectionStatus";
-import User from "./User";
 import languages from "./languages.json";
 import type { UserInfo } from "./rustpad";
 
@@ -81,18 +82,20 @@ function Sidebar({
       <Heading mt={4} mb={1.5} size="sm">
         Editor Profile
       </Heading>
-      <Stack spacing={0} mb={1.5} fontSize="sm">
-        <User
-          info={currentUser}
-          isMe
-          onChangeName={onChangeName}
-          onChangeColor={onChangeColor}
-          darkMode={darkMode}
-        />
-        {Object.entries(users).map(([id, info]) => (
-          <User key={id} info={info} darkMode={darkMode} />
-        ))}
-      </Stack>
+      <Flex 
+        p={3} 
+        bg={darkMode ? "#3c3c3c" : "white"} 
+        borderRadius="md" 
+        fontSize="sm"
+        alignItems="center"
+      >
+        <Box mr={3} color={darkMode ? "green.400" : "green.600"}>
+          <Icon as={VscPerson} fontSize="lg" />
+        </Box>
+        <Text>
+          <strong>{Object.keys(users).length + 1}</strong> active {Object.keys(users).length + 1 === 1 ? 'user' : 'users'}
+        </Text>
+      </Flex>
 
       <Heading mt={4} mb={1.5} size="sm">
         About
@@ -100,13 +103,6 @@ function Sidebar({
       <Text fontSize="sm" mb={1.5}>
         <strong>Code Beautifier</strong> is a tool for formatting and improving 
         the indentation of your code for better readability.
-      </Text>
-      <Text fontSize="sm" mb={1.5}>
-        Each formatting session has a unique URL that can be copied from your browser's 
-        address bar if you need to revisit your work later.
-      </Text>
-      <Text fontSize="sm" mb={1.5}>
-        Built using modern web technologies and supporting multiple programming languages.
       </Text>
 
       <Button
