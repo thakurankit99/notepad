@@ -1,0 +1,17 @@
+version: '3'
+
+services:
+  code-beautifier:
+    build: .
+    container_name: code-beautifier
+    ports:
+      - "3030:3030"
+    environment:
+      - PORT=3030
+      - EXPIRY_DAYS=7
+      # Uncomment the following line if you want to enable SQLite persistence
+      # - SQLITE_URI=file:/data/db.sqlite
+    # Uncomment the following lines if using persistence
+    # volumes:
+    #   - ./data:/data
+    restart: unless-stopped 

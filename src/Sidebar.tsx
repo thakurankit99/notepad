@@ -3,9 +3,6 @@ import {
   Container,
   Flex,
   Heading,
-  Input,
-  InputGroup,
-  InputRightElement,
   Link,
   Select,
   Stack,
@@ -21,7 +18,6 @@ import languages from "./languages.json";
 import type { UserInfo } from "./rustpad";
 
 export type SidebarProps = {
-  documentId: string;
   connection: "connected" | "disconnected" | "desynchronized";
   darkMode: boolean;
   language: string;
@@ -35,7 +31,6 @@ export type SidebarProps = {
 };
 
 function Sidebar({
-  documentId,
   connection,
   darkMode,
   language,
@@ -48,20 +43,6 @@ function Sidebar({
   onChangeColor,
 }: SidebarProps) {
   const toast = useToast();
-
-  // For sharing the document by link to others.
-  const documentUrl = `${window.location.origin}/#${documentId}`;
-
-  async function handleCopy() {
-    await navigator.clipboard.writeText(documentUrl);
-    toast({
-      title: "Copied!",
-      description: "Link copied to clipboard",
-      status: "success",
-      duration: 2000,
-      isClosable: true,
-    });
-  }
 
   return (
     <Container
@@ -98,33 +79,7 @@ function Sidebar({
       </Select>
 
       <Heading mt={4} mb={1.5} size="sm">
-        Share Link
-      </Heading>
-      <InputGroup size="sm">
-        <Input
-          readOnly
-          pr="3.5rem"
-          variant="outline"
-          bgColor={darkMode ? "#3c3c3c" : "white"}
-          borderColor={darkMode ? "#3c3c3c" : "white"}
-          value={documentUrl}
-        />
-        <InputRightElement width="3.5rem">
-          <Button
-            h="1.4rem"
-            size="xs"
-            onClick={handleCopy}
-            _hover={{ bg: darkMode ? "#575759" : "gray.200" }}
-            bgColor={darkMode ? "#575759" : "gray.200"}
-            color={darkMode ? "white" : "inherit"}
-          >
-            Copy
-          </Button>
-        </InputRightElement>
-      </InputGroup>
-
-      <Heading mt={4} mb={1.5} size="sm">
-        Active Users
+        Editor Profile
       </Heading>
       <Stack spacing={0} mb={1.5} fontSize="sm">
         <User
@@ -143,24 +98,15 @@ function Sidebar({
         About
       </Heading>
       <Text fontSize="sm" mb={1.5}>
-        <strong>Rustpad</strong> is an open-source collaborative text editor
-        based on the <em>operational transformation</em> algorithm.
+        <strong>Code Beautifier</strong> is a tool for formatting and improving 
+        the indentation of your code for better readability.
       </Text>
       <Text fontSize="sm" mb={1.5}>
-        Share a link to this pad with others, and they can edit from their
-        browser while seeing your changes in real time.
+        Each formatting session has a unique URL that can be copied from your browser's 
+        address bar if you need to revisit your work later.
       </Text>
       <Text fontSize="sm" mb={1.5}>
-        Built using Rust and TypeScript. See the{" "}
-        <Link
-          color="blue.600"
-          fontWeight="semibold"
-          href="https://github.com/ekzhang/rustpad"
-          isExternal
-        >
-          GitHub repository
-        </Link>{" "}
-        for details.
+        Built using modern web technologies and supporting multiple programming languages.
       </Text>
 
       <Button
@@ -173,7 +119,7 @@ function Sidebar({
         mt={1}
         onClick={onLoadSample}
       >
-        Read the code
+        View sample
       </Button>
     </Container>
   );

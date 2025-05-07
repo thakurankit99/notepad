@@ -30,8 +30,7 @@ function ReadCodeConfirm({ isOpen, onClose, onConfirm }: ReadCodeConfirmProps) {
           <AlertDialogHeader>Clear editor</AlertDialogHeader>
 
           <AlertDialogBody>
-            Opening Rustpad's source code will clear the existing shared
-            content. Is this okay?
+            Loading sample code will clear the existing content. Would you like to continue?
           </AlertDialogBody>
 
           <AlertDialogFooter>

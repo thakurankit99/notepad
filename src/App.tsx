@@ -63,7 +63,7 @@ function App() {
         onDesynchronized: () => {
           setConnection("desynchronized");
           toast({
-            title: "Desynchronized with server",
+            title: "Formatting service unavailable",
             description: "Please save your work and refresh the page.",
             status: "error",
             duration: null,
@@ -96,11 +96,11 @@ function App() {
         title: "Language updated",
         description: (
           <>
-            All users are now editing in{" "}
+            Switched to{" "}
             <Text as="span" fontWeight="semibold">
               {language}
             </Text>
-            .
+            {" "}formatting.
           </>
         ),
         status: "info",
@@ -153,11 +153,10 @@ function App() {
         fontSize="sm"
         py={0.5}
       >
-        Rustpad
+        Code Beautifier
       </Box>
       <Flex flex="1 0" minH={0}>
         <Sidebar
-          documentId={id}
           connection={connection}
           darkMode={darkMode}
           language={language}
