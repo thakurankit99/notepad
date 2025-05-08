@@ -7,8 +7,10 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.40"
 bytecount = "0.6"
+chrono = "0.4.19"
 dashmap = "4.0.2"
 dotenv = "0.15.0"
+env_logger = "0.9.0"
 futures = "0.3.15"
 log = "0.4.14"
 operational-transform = { version = "0.6.0", features = ["serde"] }

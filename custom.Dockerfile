@@ -32,5 +32,15 @@ FROM alpine:latest
 RUN apk --no-cache add libpq ca-certificates
 COPY --from=frontend /usr/src/app/dist dist
 COPY --from=backend /home/rust/src/target/release/code-beautifier-server .
+
+# Configure logging environment variables
+ENV RUST_LOG=info
+ENV RUST_BACKTRACE=1
+
+# Ensure logs are not buffered
+ENV PYTHONUNBUFFERED=1
+ENV NODE_ENV=production
+
 USER 1000:1000
-CMD [ "./code-beautifier-server" ] 
+# Make stdout/stderr unbuffered
+CMD ./code-beautifier-server 
