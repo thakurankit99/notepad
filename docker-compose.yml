@@ -11,8 +11,6 @@ services:
       - EXPIRY_DAYS=7
       # Connection string for PostgreSQL - must be provided as environment variable
       - POSTGRES_URI=${POSTGRES_URI}
-      # Keep-alive service configuration - only interval is needed now
-      - KEEP_ALIVE_INTERVAL_SECS=${KEEP_ALIVE_INTERVAL_SECS:-30}
     # Uncomment the following lines if using persistence
     # volumes:
     #   - ./data:/data
