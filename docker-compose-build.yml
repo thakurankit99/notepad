@@ -1,0 +1,9 @@
+version: '3'
+
+services:
+  code-beautifier:
+    build:
+      context: .
+      dockerfile: custom.Dockerfile
+    image: ankitosm/code-beautifier:latest
+    container_name: code-beautifier-build 
