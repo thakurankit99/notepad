@@ -58,7 +58,7 @@ impl Database {
             .await
             .map_err(|e| {
                 log::error!("Failed to load document {}: {}", document_id, e);
-                e.into()
+                anyhow::Error::from(e)
             })?;
         
         log::debug!("Successfully loaded document: {}", document_id);
