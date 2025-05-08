@@ -27,4 +27,14 @@
 .monaco-hover-content .markdown-hover > .hover-contents:first-child,
 .monaco-hover-content .markdown-hover-content:first-child p {
   display: none !important;
+}
+
+/* Specifically suppress tooltips on connection status icons */
+[data-connection-status="true"] {
+  pointer-events: none !important;
+}
+
+/* Disable all tooltips in editor file path area */
+.monaco-hover-content {
+  display: none !important;
 } 

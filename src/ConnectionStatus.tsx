@@ -1,4 +1,4 @@
-import { HStack, Icon, Text, Tooltip } from "@chakra-ui/react";
+import { HStack, Icon, Text } from "@chakra-ui/react";
 import { VscCircleFilled } from "react-icons/vsc";
 
 type ConnectionStatusProps = {
@@ -22,21 +22,12 @@ function ConnectionStatus({ connection, darkMode, isCollapsed = false }: Connect
 
   if (isCollapsed) {
     return (
-      <Tooltip 
-        label={statusText} 
-        placement="right"
-        hasArrow
-        closeOnClick={false}
-        openDelay={300}
-        closeOnEsc={true}
-        gutter={10}
-      >
-        <Icon
-          as={VscCircleFilled}
-          color={statusColor}
-          boxSize={4}
-        />
-      </Tooltip>
+      <Icon
+        as={VscCircleFilled}
+        color={statusColor}
+        boxSize={4}
+        data-connection-status="true"
+      />
     );
   }
 
@@ -45,6 +36,7 @@ function ConnectionStatus({ connection, darkMode, isCollapsed = false }: Connect
       <Icon
         as={VscCircleFilled}
         color={statusColor}
+        data-connection-status="true"
       />
       <Text
         fontSize="sm"
