@@ -2,7 +2,7 @@ import { Box, Flex, HStack, Icon, Text, useToast } from "@chakra-ui/react";
 import Editor from "@monaco-editor/react";
 import { editor } from "monaco-editor/esm/vs/editor/editor.api";
 import { useEffect, useRef, useState } from "react";
-import { VscChevronRight, VscFolderOpened, VscGist } from "react-icons/vsc";
+import { VscChevronRight, VscFolderOpened, VscGist, VscMenu } from "react-icons/vsc";
 import useLocalStorageState from "use-local-storage-state";
 
 import { javaSample } from "./javaSample";
@@ -44,6 +44,9 @@ function App() {
   const [editor, setEditor] = useState<editor.IStandaloneCodeEditor>();
   const [darkMode, setDarkMode] = useLocalStorageState("darkMode", {
     defaultValue: false,
+  });
+  const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorageState("sidebarCollapsed", {
+    defaultValue: true,
   });
   const rustpad = useRef<Rustpad>();
   const id = useHash();
@@ -137,6 +140,10 @@ function App() {
     setDarkMode(!darkMode);
   }
 
+  function handleSidebarToggle() {
+    setSidebarCollapsed(!sidebarCollapsed);
+  }
+
   return (
     <Flex
       direction="column"
@@ -153,7 +160,7 @@ function App() {
         fontSize="sm"
         py={0.5}
       >
-        Code Beautifier
+        Code Beautifier ({Object.keys(users).length + 1})
       </Box>
       <Flex flex="1 0" minH={0}>
         <Sidebar
@@ -167,6 +174,8 @@ function App() {
           onLoadSample={() => handleLoadSample(false)}
           onChangeName={(name) => name.length > 0 && setName(name)}
           onChangeColor={() => setHue(generateHue())}
+          collapsed={sidebarCollapsed}
+          onToggle={handleSidebarToggle}
         />
         <ReadCodeConfirm
           isOpen={readCodeConfirmOpen}

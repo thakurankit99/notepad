@@ -18,7 +18,7 @@ function Footer() {
         align="center"
       >
         <Icon as={VscRemote} mb={-0.5} mr={1} />
-        <Text fontSize="xs">Code Beautifier ({version})</Text>
+        <Text fontSize="xs">Code Beautifier v{version}</Text>
       </Flex>
     </Flex>
   );

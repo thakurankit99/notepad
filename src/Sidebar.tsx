@@ -11,8 +11,10 @@ import {
   useToast,
   Box,
   Icon,
+  IconButton,
+  Tooltip,
 } from "@chakra-ui/react";
-import { VscRepo, VscPerson } from "react-icons/vsc";
+import { VscRepo, VscMenu, VscChevronLeft, VscColorMode } from "react-icons/vsc";
 
 import ConnectionStatus from "./ConnectionStatus";
 import languages from "./languages.json";
@@ -29,6 +31,8 @@ export type SidebarProps = {
   onLoadSample: () => void;
   onChangeName: (name: string) => void;
   onChangeColor: () => void;
+  collapsed: boolean;
+  onToggle: () => void;
 };
 
 function Sidebar({
@@ -42,8 +46,83 @@ function Sidebar({
   onLoadSample,
   onChangeName,
   onChangeColor,
+  collapsed,
+  onToggle,
 }: SidebarProps) {
   const toast = useToast();
+
+  if (collapsed) {
+    return (
+      <Box 
+        h="100%" 
+        bgColor={darkMode ? "#252526" : "#f3f3f3"} 
+        display="flex"
+        flexDirection="column"
+        alignItems="center"
+        py={4}
+        px={2}
+        width="50px"
+        transition="width 0.3s ease"
+      >
+        <IconButton
+          aria-label="Expand sidebar"
+          icon={<VscMenu />}
+          variant="ghost"
+          size="sm"
+          onClick={onToggle}
+          mb={4}
+        />
+        <ConnectionStatus darkMode={darkMode} connection={connection} isCollapsed />
+        
+        <Tooltip label={darkMode ? "Switch to light mode" : "Switch to dark mode"} placement="right">
+          <IconButton
+            aria-label="Toggle dark mode"
+            icon={<VscColorMode />}
+            variant="ghost"
+            size="sm"
+            onClick={onDarkModeChange}
+            mt={4}
+            color={darkMode ? "yellow.400" : "blue.600"}
+          />
+        </Tooltip>
+        
+        <Tooltip label={`Current language: ${language}`} placement="right">
+          <Flex 
+            mt={4}
+            p={2}
+            borderRadius="md"
+            fontSize="sm"
+            alignItems="center"
+            justifyContent="center"
+            flexDirection="column"
+          >
+            <Text 
+              fontSize="xs" 
+              fontWeight="bold" 
+              bgColor={darkMode ? "gray.700" : "gray.200"}
+              px={2}
+              py={1}
+              borderRadius="md"
+            >
+              {language.slice(0, 2).toUpperCase()}
+            </Text>
+          </Flex>
+        </Tooltip>
+        
+        <Tooltip label="View Java sample code" placement="right">
+          <IconButton
+            aria-label="View sample"
+            icon={<VscRepo />}
+            variant="ghost"
+            size="sm"
+            onClick={onLoadSample}
+            mt={4}
+            color={darkMode ? "purple.400" : "purple.600"}
+          />
+        </Tooltip>
+      </Box>
+    );
+  }
 
   return (
     <Container
@@ -54,8 +133,19 @@ function Sidebar({
       maxW="full"
       lineHeight={1.4}
       py={4}
+      position="relative"
+      transition="width 0.3s ease"
     >
-      <ConnectionStatus darkMode={darkMode} connection={connection} />
+      <Flex justifyContent="space-between" alignItems="center" mb={4}>
+        <ConnectionStatus darkMode={darkMode} connection={connection} />
+        <IconButton
+          aria-label="Collapse sidebar"
+          icon={<VscChevronLeft />}
+          variant="ghost"
+          size="sm"
+          onClick={onToggle}
+        />
+      </Flex>
 
       <Flex justifyContent="space-between" mt={4} mb={1.5} w="full">
         <Heading size="sm">Dark Mode</Heading>
@@ -78,24 +168,6 @@ function Sidebar({
           </option>
         ))}
       </Select>
-
-      <Heading mt={4} mb={1.5} size="sm">
-        Editor Profile
-      </Heading>
-      <Flex 
-        p={3} 
-        bg={darkMode ? "#3c3c3c" : "white"} 
-        borderRadius="md" 
-        fontSize="sm"
-        alignItems="center"
-      >
-        <Box mr={3} color={darkMode ? "green.400" : "green.600"}>
-          <Icon as={VscPerson} fontSize="lg" />
-        </Box>
-        <Text>
-          <strong>{Object.keys(users).length + 1}</strong> active {Object.keys(users).length + 1 === 1 ? 'user' : 'users'}
-        </Text>
-      </Flex>
 
       <Heading mt={4} mb={1.5} size="sm">
         About
