@@ -160,7 +160,7 @@ function App() {
         fontSize="sm"
         py={0.5}
       >
-        Code Beautifier ({Object.keys(users).length + 1})
+        Code Beautifier
       </Box>
       <Flex flex="1 0" minH={0}>
         <Sidebar
@@ -215,7 +215,7 @@ function App() {
           </Box>
         </Flex>
       </Flex>
-      <Footer />
+      <Footer users={users} />
     </Flex>
   );
 }

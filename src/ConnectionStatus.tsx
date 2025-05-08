@@ -22,7 +22,15 @@ function ConnectionStatus({ connection, darkMode, isCollapsed = false }: Connect
 
   if (isCollapsed) {
     return (
-      <Tooltip label={statusText} placement="right">
+      <Tooltip 
+        label={statusText} 
+        placement="right"
+        hasArrow
+        closeOnClick={false}
+        openDelay={300}
+        closeOnEsc={true}
+        gutter={10}
+      >
         <Icon
           as={VscCircleFilled}
           color={statusColor}

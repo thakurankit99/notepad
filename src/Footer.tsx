@@ -1,12 +1,19 @@
 import { Flex, Icon, Text } from "@chakra-ui/react";
 import { VscRemote } from "react-icons/vsc";
+import { UserInfo } from "./rustpad";
 
 const version =
   typeof import.meta.env.VITE_SHA === "string"
     ? import.meta.env.VITE_SHA.slice(0, 7)
     : "development";
 
-function Footer() {
+type FooterProps = {
+  users: Record<number, UserInfo>;
+};
+
+function Footer({ users }: FooterProps) {
+  const activeUsers = Object.keys(users).length + 1;
+  
   return (
     <Flex h="22px" bgColor="#0071c3" color="white">
       <Flex
@@ -18,7 +25,7 @@ function Footer() {
         align="center"
       >
         <Icon as={VscRemote} mb={-0.5} mr={1} />
-        <Text fontSize="xs">Code Beautifier v{version}</Text>
+        <Text fontSize="xs">Code Beautifier ({activeUsers})</Text>
       </Flex>
     </Flex>
   );

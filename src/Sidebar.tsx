@@ -74,7 +74,15 @@ function Sidebar({
         />
         <ConnectionStatus darkMode={darkMode} connection={connection} isCollapsed />
         
-        <Tooltip label={darkMode ? "Switch to light mode" : "Switch to dark mode"} placement="right">
+        <Tooltip 
+          label={darkMode ? "Switch to light mode" : "Switch to dark mode"} 
+          placement="right"
+          hasArrow
+          closeOnClick={false}
+          openDelay={300}
+          closeOnEsc={true}
+          gutter={10}
+        >
           <IconButton
             aria-label="Toggle dark mode"
             icon={<VscColorMode />}
@@ -86,7 +94,15 @@ function Sidebar({
           />
         </Tooltip>
         
-        <Tooltip label={`Current language: ${language}`} placement="right">
+        <Tooltip 
+          label={`Current language: ${language}`} 
+          placement="right"
+          hasArrow
+          closeOnClick={false}
+          openDelay={300}
+          closeOnEsc={true}
+          gutter={10}
+        >
           <Flex 
             mt={4}
             p={2}
@@ -109,7 +125,15 @@ function Sidebar({
           </Flex>
         </Tooltip>
         
-        <Tooltip label="View Java sample code" placement="right">
+        <Tooltip 
+          label="View Java sample code" 
+          placement="right"
+          hasArrow
+          closeOnClick={false}
+          openDelay={300}
+          closeOnEsc={true}
+          gutter={10}
+        >
           <IconButton
             aria-label="View sample"
             icon={<VscRepo />}
