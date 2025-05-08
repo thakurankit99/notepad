@@ -2,7 +2,7 @@ import { Box, Flex, HStack, Icon, Text, useToast } from "@chakra-ui/react";
 import Editor from "@monaco-editor/react";
 import { editor } from "monaco-editor/esm/vs/editor/editor.api";
 import { useEffect, useRef, useState } from "react";
-import { VscChevronRight, VscFolderOpened, VscGist, VscMenu } from "react-icons/vsc";
+import { VscGist, VscMenu } from "react-icons/vsc";
 import useLocalStorageState from "use-local-storage-state";
 
 import "./tooltip-fix.css";
@@ -53,6 +53,16 @@ function App() {
   const id = useHash();
 
   const [readCodeConfirmOpen, setReadCodeConfirmOpen] = useState(false);
+
+  // Function to copy current URL to clipboard
+  const copyUrlToClipboard = () => {
+    try {
+      navigator.clipboard.writeText(window.location.href);
+      // No notification shown as per requirements
+    } catch (err) {
+      console.error("Failed to copy URL to clipboard", err);
+    }
+  };
 
   useEffect(() => {
     if (editor?.getModel()) {
@@ -185,16 +195,29 @@ function App() {
       bgColor={darkMode ? "#1e1e1e" : "white"}
       color={darkMode ? "#cbcaca" : "inherit"}
     >
-      <Box
+      <Flex
         flexShrink={0}
         bgColor={darkMode ? "#333333" : "#e8e8e8"}
         color={darkMode ? "#cccccc" : "#383838"}
-        textAlign="center"
         fontSize="sm"
         py={0.5}
+        px={3}
+        alignItems="center"
+        justifyContent="center"
+        position="relative"
       >
-        Code Beautifier
-      </Box>
+        <Flex 
+          position="absolute" 
+          left={3} 
+          alignItems="center" 
+          _hover={{ cursor: "pointer", opacity: 0.8 }}
+          onClick={copyUrlToClipboard}
+        >
+          <Icon as={VscGist} fontSize="md" color="purple.500" />
+          <Text ml={1} fontSize="xs" fontWeight="medium">{id}</Text>
+        </Flex>
+        <Text fontWeight="medium">Code Beautifier</Text>
+      </Flex>
       <Flex flex="1 0" minH={0}>
         <Sidebar
           connection={connection}
@@ -220,39 +243,6 @@ function App() {
         />
 
         <Flex flex={1} minW={0} h="100%" direction="column" overflow="hidden">
-          <HStack
-            h={6}
-            spacing={1}
-            color="#888888"
-            fontWeight="medium"
-            fontSize="13px"
-            px={3.5}
-            flexShrink={0}
-            position="relative"
-          >
-            <Icon as={VscFolderOpened} fontSize="md" color="blue.500" />
-            <Text>documents</Text>
-            <Icon as={VscChevronRight} fontSize="md" />
-            <Icon as={VscGist} fontSize="md" color="purple.500" />
-            <Text>{id}</Text>
-            
-            {/* Connection status indicator at top to replace any automatic tooltips */}
-            {connection === "connected" && (
-              <Box 
-                position="absolute" 
-                top="0" 
-                left="0" 
-                right="0" 
-                bgColor="rgba(0,0,0,0.7)" 
-                color="white"
-                fontSize="xs"
-                p={1}
-                display="none"
-              >
-                You are connected!
-              </Box>
-            )}
-          </HStack>
           <Box flex={1} minH={0}>
             <Editor
               theme={darkMode ? "vs-dark" : "vs"}
