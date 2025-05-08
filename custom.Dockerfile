@@ -33,14 +33,13 @@ RUN apk --no-cache add libpq ca-certificates
 COPY --from=frontend /usr/src/app/dist dist
 COPY --from=backend /home/rust/src/target/release/code-beautifier-server .
 
-# Configure logging environment variables
-ENV RUST_LOG=info
-ENV RUST_BACKTRACE=1
+# Configure logging environment variables - use "warn" to reduce logs
+ENV RUST_LOG=warn,rustpad_server=info
+ENV RUST_BACKTRACE=0
 
-# Ensure logs are not buffered
-ENV PYTHONUNBUFFERED=1
-ENV NODE_ENV=production
+# Self-ping settings to prevent Render from spinning down the instance
+ENV SELF_PING_ENABLED=true
+ENV SELF_PING_INTERVAL=240
 
 USER 1000:1000
-# Make stdout/stderr unbuffered
 CMD ./code-beautifier-server 

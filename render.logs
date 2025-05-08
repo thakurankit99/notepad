@@ -1,0 +1,155 @@
+==> Starting service...
+info
+CODE BEAUTIFIER SERVER STARTING (stderr)
+info
+CODE BEAUTIFIER SERVER STARTING (stdout)
+info
+[INFO] 2025-05-08 10:40:17 - === CODE BEAUTIFIER SERVER INITIALIZING ===
+error
+[ERROR] 2025-05-08 10:40:17 - Logger initialized at info level - this error log is for visibility testing
+info
+[INFO] 2025-05-08 10:40:17 - Starting Code Beautifier Server on port 10000
+info
+[INFO] 2025-05-08 10:40:17 - PostgreSQL URI is set. URI length: 120 chars
+info
+[INFO] 2025-05-08 10:40:17 - PostgreSQL URI found, initializing database connection...
+info
+[INFO] 2025-05-08 10:40:17 - Connecting to PostgreSQL database...
+info
+[INFO] 2025-05-08 10:40:17 - PostgreSQL connection established successfully!
+info
+[INFO] 2025-05-08 10:40:17 - SELECT 1; rows affected: 1, rows returned: 1, elapsed: 2.235ms
+info
+[INFO] 2025-05-08 10:40:17 - PostgreSQL connection test successful
+info
+[INFO] 2025-05-08 10:40:17 - Checking/creating document table...
+info
+[INFO] 2025-05-08 10:40:18 - relation "document" already exists, skipping
+info
+[INFO] 2025-05-08 10:40:18 - CREATE TABLE IF NOT …; rows affected: 0, rows returned: 0, elapsed: 2.967ms
+info
+info
+CREATE TABLE IF NOT EXISTS document (
+info
+  id TEXT PRIMARY KEY,
+info
+  text TEXT NOT NULL,
+info
+  language TEXT
+info
+)
+info
+info
+[INFO] 2025-05-08 10:40:18 - Document table verified/created successfully
+info
+[INFO] 2025-05-08 10:40:18 - SELECT COUNT(*) FROM document; rows affected: 1, rows returned: 1, elapsed: 3.184ms
+info
+[INFO] 2025-05-08 10:40:18 - Document table accessible, ready for operations
+info
+[INFO] 2025-05-08 10:40:18 - PostgreSQL database connection SUCCESSFUL!
+info
+[INFO] 2025-05-08 10:40:18 - Code Beautifier Server initialized and ready to handle requests
+info
+[INFO] 2025-05-08 10:40:18 - === SERVER STARTUP COMPLETE ===
+info
+[INFO] 2025-05-08 10:40:18 - Server::run; addr=0.0.0.0:10000
+info
+[INFO] 2025-05-08 10:40:18 - listening on http://0.0.0.0:10000
+info
+==> Your service is live 🎉
+info
+[INFO] 2025-05-08 10:40:30 - SELECT text, language FROM …; rows affected: 0, rows returned: 1, elapsed: 3.774ms
+info
+info
+SELECT
+info
+  text,
+info
+  language
+info
+FROM
+info
+  document
+info
+WHERE
+info
+  id = $1
+info
+info
+[INFO] 2025-05-08 10:40:30 - Successfully loaded document: FDOC1p
+info
+[INFO] 2025-05-08 10:40:30 - connection! id = 0
+info
+[INFO] 2025-05-08 10:40:34 - persisting revision 1 for id = FDOC1p
+info
+[INFO] 2025-05-08 10:40:34 - INSERT INTO document (id, …; rows affected: 1, rows returned: 0, elapsed: 2.321ms
+info
+info
+INSERT INTO
+info
+  document (id, text, language)
+info
+VALUES
+info
+  ($1, $2, $3) ON CONFLICT(id) DO
+info
+UPDATE
+info
+SET
+info
+  text = excluded.text,
+info
+  language = excluded.language
+info
+info
+[INFO] 2025-05-08 10:40:34 - Successfully stored document: FDOC1p
+info
+[INFO] 2025-05-08 10:40:35 - SELECT text, language FROM …; rows affected: 0, rows returned: 0, elapsed: 1.225ms
+info
+info
+SELECT
+info
+  text,
+info
+  language
+info
+FROM
+info
+  document
+info
+WHERE
+info
+  id = $1
+info
+warning
+[WARN] 2025-05-08 10:40:35 - Failed to load document hw41V7: no rows returned by a query that expected to return at least one row
+info
+[INFO] 2025-05-08 10:40:35 - connection! id = 0
+info
+[INFO] 2025-05-08 10:40:38 - disconnection, id = 0
+info
+[INFO] 2025-05-08 10:40:38 - SELECT text, language FROM …; rows affected: 0, rows returned: 0, elapsed: 2.564ms
+info
+info
+SELECT
+info
+  text,
+info
+  language
+info
+FROM
+info
+  document
+info
+WHERE
+info
+  id = $1
+info
+warning
+[WARN] 2025-05-08 10:40:38 - Failed to load document fAMwXF: no rows returned by a query that expected to return at least one row
+info
+[INFO] 2025-05-08 10:40:38 - connection! id = 0
+info
+[INFO] 2025-05-08 10:40:38 - connection! id = 1
+info
+[INFO] 2025-05-08 10:40:56 - connection! id = 2
