@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { VscChevronRight, VscFolderOpened, VscGist, VscMenu } from "react-icons/vsc";
 import useLocalStorageState from "use-local-storage-state";
 
+import "./tooltip-fix.css";
 import { javaSample } from "./javaSample";
 import Footer from "./Footer";
 import ReadCodeConfirm from "./ReadCodeConfirm";
@@ -91,6 +92,38 @@ function App() {
       rustpad.current?.setInfo({ name, hue });
     }
   }, [connection, name, hue]);
+
+  // Effect to handle persistent tooltips
+  useEffect(() => {
+    // Function to remove any visible tooltips on mousemove
+    const handleMouseMove = (e: MouseEvent) => {
+      const tooltips = document.querySelectorAll('.monaco-hover');
+      if (tooltips.length > 0) {
+        // After a short delay, remove tooltips that shouldn't be persistent
+        setTimeout(() => {
+          tooltips.forEach(tooltip => {
+            // Check if the mouse is still over the tooltip
+            const rect = tooltip.getBoundingClientRect();
+            const mouseX = e.clientX;
+            const mouseY = e.clientY;
+            
+            if (mouseX < rect.left || mouseX > rect.right || 
+                mouseY < rect.top || mouseY > rect.bottom) {
+              tooltip.remove();
+            }
+          });
+        }, 300);
+      }
+    };
+
+    // Add event listener for mouse movement
+    document.addEventListener('mousemove', handleMouseMove);
+    
+    // Cleanup function to remove event listener
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+    };
+  }, []);
 
   function handleLanguageChange(language: string) {
     setLanguage(language);
@@ -195,12 +228,30 @@ function App() {
             fontSize="13px"
             px={3.5}
             flexShrink={0}
+            position="relative"
           >
             <Icon as={VscFolderOpened} fontSize="md" color="blue.500" />
             <Text>documents</Text>
             <Icon as={VscChevronRight} fontSize="md" />
             <Icon as={VscGist} fontSize="md" color="purple.500" />
             <Text>{id}</Text>
+            
+            {/* Connection status indicator at top to replace any automatic tooltips */}
+            {connection === "connected" && (
+              <Box 
+                position="absolute" 
+                top="0" 
+                left="0" 
+                right="0" 
+                bgColor="rgba(0,0,0,0.7)" 
+                color="white"
+                fontSize="xs"
+                p={1}
+                display="none"
+              >
+                You are connected!
+              </Box>
+            )}
           </HStack>
           <Box flex={1} minH={0}>
             <Editor
@@ -209,6 +260,18 @@ function App() {
               options={{
                 automaticLayout: true,
                 fontSize: 13,
+                hover: {
+                  enabled: false,
+                  delay: 100,
+                  sticky: false
+                }
+              }}
+              beforeMount={(monaco) => {
+                // Completely disable hover widgets
+                monaco.editor.registerCommand('editor.action.showHover', () => {
+                  // Do nothing, effectively disabling hover
+                  return null;
+                });
               }}
               onMount={(editor) => setEditor(editor)}
             />

@@ -1,0 +1,30 @@
+/* Fix for Monaco editor tooltips that stay visible */
+
+/* Monaco editor hover tooltips should not stay visible */
+.monaco-editor .hover-row.status-bar {
+  display: none !important;
+}
+
+/* Document path tooltips should not persist */
+.monaco-hover {
+  visibility: visible !important;
+  opacity: 1 !important;
+  transition: opacity 0.5s ease, visibility 0s 0.5s ease !important;
+}
+
+.monaco-hover:not(:hover) {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  transition-delay: 1s !important;
+}
+
+/* Override any additional editor widgets */
+.monaco-editor .editor-widget {
+  pointer-events: none !important;
+}
+
+/* Remove the "You are connected!" sticky tooltip */
+.monaco-hover-content .markdown-hover > .hover-contents:first-child,
+.monaco-hover-content .markdown-hover-content:first-child p {
+  display: none !important;
+} 
