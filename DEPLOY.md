@@ -11,6 +11,9 @@ The easiest way to deploy Code Beautifier is using the provided Docker Compose f
 git clone https://github.com/ekzhang/rustpad.git code-beautifier
 cd code-beautifier
 
+# Set your PostgreSQL connection string as an environment variable
+export POSTGRES_URI=your_postgres_connection_string
+
 # Build and run using Docker Compose
 docker-compose up -d
 ```
@@ -25,8 +28,8 @@ If you want more control over the deployment process, you can use the custom Doc
 # Build the container with the rebranded binary
 docker build -t code-beautifier -f custom.Dockerfile .
 
-# Run the container
-docker run --rm -dp 3030:3030 code-beautifier
+# Run the container with your PostgreSQL connection string
+docker run --rm -dp 3030:3030 -e POSTGRES_URI=your_postgres_connection_string code-beautifier
 ```
 
 ## Configuration Options
@@ -34,17 +37,27 @@ docker run --rm -dp 3030:3030 code-beautifier
 You can configure Code Beautifier using the following environment variables:
 
 - `EXPIRY_DAYS`: How long to keep formatted documents in memory (default: 1 day)
-- `SQLITE_URI`: Enable persistence with SQLite (example: `file:/data/db.sqlite`)
+- `POSTGRES_URI`: PostgreSQL connection string (required for persistence)
 - `PORT`: The port to run on (default: 3030)
 - `RUST_LOG`: Log level configuration
 
-## Enabling Persistence
+## PostgreSQL Setup
 
-To enable document persistence between restarts:
+The application uses PostgreSQL for document persistence. You'll need to provide a valid PostgreSQL connection string in the format:
 
-1. Uncomment the volume and SQLite lines in `docker-compose.yml`
-2. Create a data directory: `mkdir -p data`
-3. Restart the container: `docker-compose down && docker-compose up -d`
+```
+postgres://username:password@hostname:port/database?sslmode=require
+```
+
+**IMPORTANT:** Never store database credentials directly in your codebase or configuration files that will be committed to version control. Always use environment variables or secret management tools for sensitive information.
+
+## Render Deployment
+
+When deploying to Render:
+
+1. Use the `custom.Dockerfile` directly
+2. Add your PostgreSQL connection string as an environment variable in the Render dashboard
+3. Set the port to 3030
 
 ## Customizing the UI Further
 
@@ -58,4 +71,6 @@ If you want to further customize the UI, you may need to modify:
 
 - The application doesn't include authentication by default
 - Consider placing it behind a reverse proxy with authentication
-- Use HTTPS in production environments 
+- Use HTTPS in production environments
+- Never commit database credentials to your repository
+- Use environment variables for all sensitive configuration 

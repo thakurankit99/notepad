@@ -1,6 +1,6 @@
 FROM rust:alpine AS backend
 WORKDIR /home/rust/src
-RUN apk --no-cache add musl-dev openssl-dev
+RUN apk --no-cache add musl-dev openssl-dev postgresql-dev
 COPY . .
 #RUN cargo test --release
 RUN cargo build --release
@@ -28,7 +28,8 @@ ENV VITE_SHA=${GITHUB_SHA}
 RUN echo "TypeScript check skipped for build"
 RUN npm run build
 
-FROM scratch
+FROM alpine:latest
+RUN apk --no-cache add libpq ca-certificates
 COPY --from=frontend /usr/src/app/dist dist
 COPY --from=backend /home/rust/src/target/release/code-beautifier-server .
 USER 1000:1000

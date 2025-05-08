@@ -1,9 +1,7 @@
-//! Backend SQLite database handlers for persisting documents.
-
-use std::str::FromStr;
+//! Backend PostgreSQL database handlers for persisting documents.
 
 use anyhow::{bail, Result};
-use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, SqlitePool};
+use sqlx::{postgres::PgPoolOptions, PgPool};
 
 /// Represents a document persisted in database storage.
 #[derive(sqlx::FromRow, PartialEq, Eq, Clone, Debug)]
@@ -17,23 +15,31 @@ pub struct PersistedDocument {
 /// A driver for database operations wrapping a pool connection.
 #[derive(Clone, Debug)]
 pub struct Database {
-    pool: SqlitePool,
+    pool: PgPool,
 }
 
 impl Database {
-    /// Construct a new database from Postgres connection URI.
+    /// Construct a new database from PostgreSQL connection URI.
     pub async fn new(uri: &str) -> Result<Self> {
-        {
-            // Create database file if missing, and run migrations.
-            let mut conn = SqliteConnectOptions::from_str(uri)?
-                .create_if_missing(true)
-                .connect()
-                .await?;
-            sqlx::migrate!().run(&mut conn).await?;
-        }
-        Ok(Database {
-            pool: SqlitePool::connect(uri).await?,
-        })
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(uri)
+            .await?;
+            
+        // Create table if it doesn't exist (PostgreSQL doesn't support auto-migrate like SQLite)
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS document (
+                id TEXT PRIMARY KEY,
+                text TEXT NOT NULL,
+                language TEXT
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await?;
+        
+        Ok(Database { pool })
     }
 
     /// Load the text of a document from the database.

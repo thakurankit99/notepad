@@ -9,8 +9,8 @@ services:
     environment:
       - PORT=3030
       - EXPIRY_DAYS=7
-      # Uncomment the following line if you want to enable SQLite persistence
-      # - SQLITE_URI=file:/data/db.sqlite
+      # Connection string for PostgreSQL - must be provided as environment variable
+      - POSTGRES_URI=${POSTGRES_URI}
     # Uncomment the following lines if using persistence
     # volumes:
     #   - ./data:/data
