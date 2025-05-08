@@ -1,6 +1,9 @@
 FROM rust:alpine AS backend
 WORKDIR /home/rust/src
-RUN apk --no-cache add musl-dev openssl-dev postgresql-dev
+# Make sure to install ALL necessary SSL dependencies
+RUN apk --no-cache add musl-dev openssl-dev postgresql-dev pkgconfig openssl-libs-static
+ENV OPENSSL_STATIC=1
+ENV OPENSSL_DIR=/usr
 COPY . .
 #RUN cargo test --release
 RUN cargo build --release
@@ -42,4 +45,4 @@ ENV SELF_PING_ENABLED=true
 ENV SELF_PING_INTERVAL=240
 
 USER 1000:1000
-CMD ./code-beautifier-server 
+CMD ["./code-beautifier-server"] 
