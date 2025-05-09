@@ -63,14 +63,20 @@ function Sidebar({
         px={2}
         width="50px"
         transition="width 0.3s ease"
+        borderRight={darkMode ? "1px solid #444" : "1px solid #ddd"}
+        boxShadow={darkMode ? "0 0 8px rgba(0,0,0,0.3)" : "0 0 5px rgba(0,0,0,0.1)"}
+        zIndex={5}
       >
         <IconButton
           aria-label="Expand sidebar"
-          icon={<VscMenu />}
+          icon={<VscMenu fontSize="18px" />}
           variant="ghost"
           size="sm"
           onClick={onToggle}
           mb={4}
+          color={darkMode ? "white" : "gray.700"}
+          bg={darkMode ? "whiteAlpha.100" : "transparent"}
+          _hover={{ bg: darkMode ? "whiteAlpha.300" : "blackAlpha.100" }}
         />
         <ConnectionStatus darkMode={darkMode} connection={connection} isCollapsed />
         
@@ -85,12 +91,13 @@ function Sidebar({
         >
           <IconButton
             aria-label="Toggle dark mode"
-            icon={<VscColorMode />}
+            icon={<VscColorMode fontSize="18px" />}
             variant="ghost"
             size="sm"
             onClick={onDarkModeChange}
             mt={4}
             color={darkMode ? "yellow.400" : "blue.600"}
+            _hover={{ bg: darkMode ? "whiteAlpha.200" : "blackAlpha.100" }}
           />
         </Tooltip>
         
@@ -116,6 +123,7 @@ function Sidebar({
               fontSize="xs" 
               fontWeight="bold" 
               bgColor={darkMode ? "gray.700" : "gray.200"}
+              color={darkMode ? "gray.200" : "gray.700"}
               px={2}
               py={1}
               borderRadius="md"
@@ -136,12 +144,13 @@ function Sidebar({
         >
           <IconButton
             aria-label="View sample"
-            icon={<VscRepo />}
+            icon={<VscRepo fontSize="18px" />}
             variant="ghost"
             size="sm"
             onClick={onLoadSample}
             mt={4}
             color={darkMode ? "purple.400" : "purple.600"}
+            _hover={{ bg: darkMode ? "whiteAlpha.200" : "blackAlpha.100" }}
           />
         </Tooltip>
       </Box>
@@ -151,7 +160,7 @@ function Sidebar({
   return (
     <Container
       w={{ base: "3xs", md: "2xs", lg: "xs" }}
-      display={{ base: "none", sm: "block" }}
+      display={{ base: "block", sm: "block" }}
       bgColor={darkMode ? "#252526" : "#f3f3f3"}
       overflowY="auto"
       maxW="full"
@@ -159,15 +168,19 @@ function Sidebar({
       py={4}
       position="relative"
       transition="width 0.3s ease"
+      borderRight={darkMode ? "1px solid #444" : "1px solid #ddd"}
+      zIndex={5}
     >
       <Flex justifyContent="space-between" alignItems="center" mb={4}>
         <ConnectionStatus darkMode={darkMode} connection={connection} />
         <IconButton
           aria-label="Collapse sidebar"
-          icon={<VscChevronLeft />}
+          icon={<VscChevronLeft fontSize="18px" />}
           variant="ghost"
           size="sm"
           onClick={onToggle}
+          color={darkMode ? "white" : "gray.700"}
+          _hover={{ bg: darkMode ? "whiteAlpha.200" : "blackAlpha.100" }}
         />
       </Flex>
 
@@ -175,6 +188,10 @@ function Sidebar({
         <Heading size="sm">Dark Mode</Heading>
         <Switch isChecked={darkMode} onChange={onDarkModeChange} />
       </Flex>
+
+      <Text fontSize="xs" color={darkMode ? "gray.400" : "gray.500"} mb={3}>
+        Using {darkMode ? "dark" : "light"} mode - matches your system preference unless manually set
+      </Text>
 
       <Heading mt={4} mb={1.5} size="sm">
         Language
@@ -199,6 +216,10 @@ function Sidebar({
       <Text fontSize="sm" mb={1.5}>
         <strong>Code Beautifier</strong> is a tool for formatting and improving 
         the indentation of your code for better readability.
+      </Text>
+      
+      <Text fontSize="xs" color={darkMode ? "gray.400" : "gray.500"} mt={1} mb={2}>
+        Use the +/- buttons in the top bar to adjust text size
       </Text>
 
       <Button

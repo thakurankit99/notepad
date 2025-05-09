@@ -1,8 +1,8 @@
-import { Box, Flex, HStack, Icon, Text, useToast } from "@chakra-ui/react";
+import { Box, Flex, HStack, Icon, Text, useToast, IconButton, Tooltip } from "@chakra-ui/react";
 import Editor from "@monaco-editor/react";
 import { editor } from "monaco-editor/esm/vs/editor/editor.api";
 import { useEffect, useRef, useState } from "react";
-import { VscGist, VscMenu } from "react-icons/vsc";
+import { VscGist, VscMenu, VscAdd, VscRemove } from "react-icons/vsc";
 import useLocalStorageState from "use-local-storage-state";
 
 import "./tooltip-fix.css";
@@ -29,6 +29,12 @@ function generateHue() {
   return Math.floor(Math.random() * 360);
 }
 
+// Add function to detect system theme preference
+function detectSystemTheme(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
 function App() {
   const toast = useToast();
   const [language, setLanguage] = useState("plaintext");
@@ -43,9 +49,17 @@ function App() {
     defaultValue: generateHue,
   });
   const [editor, setEditor] = useState<editor.IStandaloneCodeEditor>();
+  
+  // Use system theme as default
   const [darkMode, setDarkMode] = useLocalStorageState("darkMode", {
-    defaultValue: false,
+    defaultValue: detectSystemTheme(),
   });
+  
+  // Add font size state with localStorage persistence
+  const [fontSize, setFontSize] = useLocalStorageState("fontSize", {
+    defaultValue: 13
+  });
+  
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorageState("sidebarCollapsed", {
     defaultValue: true,
   });
@@ -53,6 +67,47 @@ function App() {
   const id = useHash();
 
   const [readCodeConfirmOpen, setReadCodeConfirmOpen] = useState(false);
+
+  // Listen for system theme changes
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    
+    const handleChange = (e: MediaQueryListEvent) => {
+      // Only update if the user hasn't explicitly set a preference yet
+      // Check if localStorage has been written to by user interaction
+      if (!localStorage.getItem('userThemePreference')) {
+        setDarkMode(e.matches);
+      }
+    };
+    
+    // Modern browsers
+    mediaQuery.addEventListener('change', handleChange);
+    
+    return () => {
+      mediaQuery.removeEventListener('change', handleChange);
+    };
+  }, [setDarkMode]);
+
+  // Add keyboard shortcuts for text zoom (Ctrl/Cmd + +/-)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if Ctrl key or Meta key (Command on Mac) is pressed
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === '+' || e.key === '=') {
+          e.preventDefault(); // Prevent browser zoom
+          increaseTextSize();
+        } else if (e.key === '-' || e.key === '_') {
+          e.preventDefault(); // Prevent browser zoom
+          decreaseTextSize();
+        }
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [fontSize]); // Re-add listener when fontSize changes to ensure correct state
 
   // Function to copy current URL to clipboard
   const copyUrlToClipboard = () => {
@@ -135,6 +190,23 @@ function App() {
     };
   }, []);
 
+  // Text zoom functions
+  const increaseTextSize = () => {
+    const newSize = Math.min(fontSize + 1, 24); // Maximum font size
+    setFontSize(newSize);
+    if (editor) {
+      editor.updateOptions({ fontSize: newSize });
+    }
+  };
+
+  const decreaseTextSize = () => {
+    const newSize = Math.max(fontSize - 1, 8); // Minimum font size
+    setFontSize(newSize);
+    if (editor) {
+      editor.updateOptions({ fontSize: newSize });
+    }
+  };
+
   function handleLanguageChange(language: string) {
     setLanguage(language);
     if (rustpad.current?.setLanguage(language)) {
@@ -180,6 +252,8 @@ function App() {
   }
 
   function handleDarkModeChange() {
+    // When user explicitly changes theme, record that preference
+    localStorage.setItem('userThemePreference', 'set');
     setDarkMode(!darkMode);
   }
 
@@ -217,6 +291,41 @@ function App() {
           <Text ml={1} fontSize="xs" fontWeight="medium">{id}</Text>
         </Flex>
         <Text fontWeight="medium">Code Beautifier</Text>
+        
+        {/* Add font size controls */}
+        <Flex 
+          position="absolute" 
+          right={3} 
+          alignItems="center"
+        >
+          <Tooltip label="Decrease font size (Ctrl/Cmd + -)" openDelay={500}>
+            <IconButton
+              aria-label="Decrease font size"
+              icon={<VscRemove />}
+              size="xs"
+              variant="ghost"
+              onClick={decreaseTextSize}
+              mr={1}
+              color={darkMode ? "gray.300" : "gray.600"}
+            />
+          </Tooltip>
+          <Tooltip label="Current font size">
+            <Text fontSize="xs" mx={1} minW="20px" textAlign="center">
+              {fontSize}
+            </Text>
+          </Tooltip>
+          <Tooltip label="Increase font size (Ctrl/Cmd + +)" openDelay={500}>
+            <IconButton
+              aria-label="Increase font size"
+              icon={<VscAdd />}
+              size="xs"
+              variant="ghost"
+              onClick={increaseTextSize}
+              ml={1}
+              color={darkMode ? "gray.300" : "gray.600"}
+            />
+          </Tooltip>
+        </Flex>
       </Flex>
       <Flex flex="1 0" minH={0}>
         <Sidebar
@@ -249,7 +358,7 @@ function App() {
               language={language}
               options={{
                 automaticLayout: true,
-                fontSize: 13,
+                fontSize: fontSize,
                 hover: {
                   enabled: false,
                   delay: 100,
