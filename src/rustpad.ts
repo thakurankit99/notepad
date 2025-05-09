@@ -259,6 +259,7 @@ class Rustpad {
     if (operation.is_noop()) return;
 
     this.ignoreChanges = true;
+    
     const ops: (string | number)[] = JSON.parse(operation.to_string());
     let index = 0;
 
@@ -314,6 +315,22 @@ class Rustpad {
     this.ignoreChanges = false;
 
     this.transformCursors(operation);
+    
+    // Always scroll to the top when another user pastes data
+    setTimeout(() => {
+      if (this.options.editor) {
+        this.options.editor.setScrollPosition({
+          scrollTop: 0,
+          scrollLeft: 0
+        });
+        
+        // Also set cursor to beginning of document for consistency
+        this.options.editor.setPosition({ lineNumber: 1, column: 1 });
+        
+        // Clear selection to avoid any confusion
+        this.options.editor.setSelection({ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 });
+      }
+    }, 0);
   }
 
   private transformCursors(operation: OpSeq) {

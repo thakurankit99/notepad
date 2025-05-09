@@ -357,6 +357,21 @@ function App() {
                   enabled: false,
                   delay: 100,
                   sticky: false
+                },
+                scrollBeyondLastLine: false,
+                // Prevent auto-scrolling to inserted text
+                revealHorizontalRightPadding: 0,
+                scrollbar: {
+                  alwaysConsumeMouseWheel: false
+                },
+                // Disable auto-revealing of cursor changes
+                // This helps prevent unexpected scrolling
+                cursorSurroundingLines: 0,
+                cursorSurroundingLinesStyle: 'default',
+                // Ensure we don't auto-follow remote user cursor positions
+                find: {
+                  autoFindInSelection: 'never',
+                  seedSearchStringFromSelection: 'never'
                 }
               }}
               beforeMount={(monaco) => {
