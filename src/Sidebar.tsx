@@ -33,8 +33,6 @@ export type SidebarProps = {
   onChangeColor: () => void;
   collapsed: boolean;
   onToggle: () => void;
-  autoDetectLanguage: boolean;
-  onAutoDetectLanguageChange: (enabled: boolean) => void;
 };
 
 function Sidebar({
@@ -50,8 +48,6 @@ function Sidebar({
   onChangeColor,
   collapsed,
   onToggle,
-  autoDetectLanguage,
-  onAutoDetectLanguageChange,
 }: SidebarProps) {
   const toast = useToast();
 
@@ -213,21 +209,6 @@ function Sidebar({
           </option>
         ))}
       </Select>
-      
-      <Flex justifyContent="space-between" mt={2} mb={1.5} w="full">
-        <Text fontSize="sm">Auto-detect language</Text>
-        <Switch 
-          size="sm" 
-          isChecked={autoDetectLanguage} 
-          onChange={(e) => onAutoDetectLanguageChange(e.target.checked)} 
-        />
-      </Flex>
-      
-      <Text fontSize="xs" color={darkMode ? "gray.400" : "gray.500"} mb={3}>
-        {autoDetectLanguage 
-          ? "Language will be detected automatically when pasting code" 
-          : "Auto-detection is disabled"}
-      </Text>
 
       <Heading mt={4} mb={1.5} size="sm">
         About
