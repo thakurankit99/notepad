@@ -2,8 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Updated favicon configuration -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <!-- End favicon configuration -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Code Beautifier</title>
     <meta
       name="description"
@@ -15,10 +21,84 @@
       property="og:description"
       content="Easily format your code with proper indentation and syntax highlighting"
     />
-    <meta name="theme-color" content="#e8e8e8" />
+    <meta name="theme-color" content="#09835c" id="theme-color-meta" />
+    <style>
+      /* Ensure footer is visible on mobile */
+      html, body {
+        height: 100%;
+        overscroll-behavior: none;
+      }
+      
+      /* iOS safe areas support */
+      @supports (padding-bottom: env(safe-area-inset-bottom)) {
+        #root {
+          padding-bottom: env(safe-area-inset-bottom);
+        }
+      }
+      
+      /* Safari specific footer fix */
+      @media not all and (min-resolution:.001dpcm) { 
+        @supports (-webkit-appearance:none) and (display:flow-root) {
+          body {
+            height: -webkit-fill-available;
+          }
+          
+          #root {
+            height: -webkit-fill-available;
+          }
+        }
+      }
+      
+      /* Make sure we don't accidentally scroll the page */
+      body {
+        overflow: hidden;
+        position: fixed;
+        width: 100%;
+        height: 100%;
+      }
+      
+      /* Add specific styles for Chrome on Android */
+      @media screen and (-webkit-min-device-pixel-ratio:0) {
+        #root {
+          min-height: -webkit-fill-available;
+        }
+      }
+    </style>
+    <script>
+      // Update theme color based on system preference
+      function updateThemeColor() {
+        const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const userPreference = localStorage.getItem('darkMode');
+        
+        // Check for user preference first, then system preference
+        const shouldUseDarkTheme = userPreference === 'true' || (userPreference === null && isDarkMode);
+        
+        const metaThemeColor = document.getElementById('theme-color-meta');
+        if (metaThemeColor) {
+          metaThemeColor.setAttribute('content', shouldUseDarkTheme ? '#1e1e1e' : '#09835c');
+        }
+      }
+      
+      // Run on page load
+      updateThemeColor();
+      
+      // Listen for changes in color scheme
+      if (window.matchMedia) {
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateThemeColor);
+      }
+      
+      // Also update when storage changes (if another tab changes the theme)
+      window.addEventListener('storage', function(e) {
+        if (e.key === 'darkMode') {
+          updateThemeColor();
+        }
+      });
+    </script>
   </head>
   <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root"></div>
     <script type="module" src="/src/index.tsx"></script>
   </body>
 </html>
+
