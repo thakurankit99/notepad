@@ -10,6 +10,7 @@ import { javaSample } from "./javaSample";
 import Footer from "./Footer";
 import ReadCodeConfirm from "./ReadCodeConfirm";
 import Sidebar from "./Sidebar";
+import Search from "./Search";
 import animals from "./animals.json";
 import languages from "./languages.json";
 import Rustpad, { UserInfo } from "./rustpad";
@@ -70,6 +71,10 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorageState("sidebarCollapsed", {
     defaultValue: true,
   });
+  
+  // Search panel state
+  const [showSearch, setShowSearch] = useState(false);
+  
   const rustpad = useRef<Rustpad>();
   const id = useHash();
 
@@ -149,6 +154,20 @@ function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [fontSize, editor, setFontSize]);
+
+  // Add keyboard shortcut for search (Ctrl+F)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if Ctrl key or Meta key (Command on Mac) is pressed
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault(); // Prevent browser's default find
+        setShowSearch(true);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Function to copy current URL to clipboard
   const copyUrlToClipboard = () => {
@@ -347,6 +366,8 @@ function App() {
             minH={0}
             position="relative"
           >
+            {showSearch && <Search editor={editor} darkMode={darkMode} setShowSearch={setShowSearch} />}
+            
             <Editor
               theme={darkMode ? "vs-dark" : "vs"}
               language={language}
@@ -357,22 +378,32 @@ function App() {
                   enabled: false,
                   delay: 100,
                   sticky: false
-                }
+                },
+                folding: true,
+                foldingStrategy: 'auto',
+                foldingHighlight: true,
+                showFoldingControls: 'always',
+                unfoldOnClickAfterEndOfLine: true,
+                minimap: { enabled: !isMobile },
+                scrollBeyondLastLine: false,
+                smoothScrolling: true,
+                cursorBlinking: 'smooth',
+                lineNumbers: 'on'
               }}
               beforeMount={(monaco) => {
-                // Completely disable hover widgets
                 monaco.editor.registerCommand('editor.action.showHover', () => {
-                  // Do nothing, effectively disabling hover
                   return null;
                 });
               }}
               onMount={(editor) => {
                 setEditor(editor);
-                // Make the editor easier to use on mobile
                 if (isMobile) {
                   editor.updateOptions({
                     fontSize: fontSize,
-                    lineHeight: 1.6
+                    lineHeight: 1.6,
+                    minimap: { enabled: false },
+                    folding: true,
+                    showFoldingControls: 'always'
                   });
                 }
               }}
@@ -386,6 +417,7 @@ function App() {
         setFontSize={setFontSize} 
         editor={editor}
         darkMode={darkMode}
+        setShowSearch={setShowSearch}
       />
     </Flex>
   );

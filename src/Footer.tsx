@@ -7,9 +7,10 @@ import {
   SliderTrack, 
   SliderFilledTrack, 
   SliderThumb, 
-  Box 
+  Box,
+  Tooltip
 } from "@chakra-ui/react";
-import { VscRemote, VscAdd, VscRemove } from "react-icons/vsc";
+import { VscRemote, VscAdd, VscRemove, VscSearch } from "react-icons/vsc";
 import { UserInfo } from "./rustpad";
 import { editor } from "monaco-editor/esm/vs/editor/editor.api";
 
@@ -19,9 +20,10 @@ type FooterProps = {
   setFontSize: (size: number) => void;
   editor?: editor.IStandaloneCodeEditor;
   darkMode: boolean;
+  setShowSearch?: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
-function Footer({ users, fontSize, setFontSize, editor, darkMode }: FooterProps) {
+function Footer({ users, fontSize, setFontSize, editor, darkMode, setShowSearch }: FooterProps) {
   const activeUsers = Object.keys(users).length + 1;
   
   const MIN_FONT_SIZE = 8;
@@ -47,6 +49,13 @@ function Footer({ users, fontSize, setFontSize, editor, darkMode }: FooterProps)
     setFontSize(value);
     if (editor) {
       editor.updateOptions({ fontSize: value });
+    }
+  };
+  
+  // Handle search button click
+  const handleOpenSearch = () => {
+    if (setShowSearch) {
+      setShowSearch(true);
     }
   };
   
@@ -81,8 +90,7 @@ function Footer({ users, fontSize, setFontSize, editor, darkMode }: FooterProps)
         <Text fontSize="xs" fontWeight="medium">Code Beautifier ({activeUsers})</Text>
       </Flex>
       
-      {/* Font size controls */}
-      <Flex 
+      <Flex
         h="100%"
         minH="100%" 
         pr={{ base: 2, md: 3 }}
@@ -90,6 +98,25 @@ function Footer({ users, fontSize, setFontSize, editor, darkMode }: FooterProps)
         alignItems="center"
         justify="flex-end"
       >
+        {/* Add Search Button */}
+        <Tooltip label="Search (Ctrl+F)" placement="top">
+          <IconButton
+            aria-label="Search"
+            icon={<VscSearch fontSize="10px" />}
+            size="xs"
+            height={{ base: "20px", md: "18px" }}
+            minWidth={{ base: "20px", md: "18px" }}
+            variant="ghost"
+            onClick={handleOpenSearch}
+            colorScheme="whiteAlpha"
+            color="white"
+            opacity={0.9}
+            _hover={{ opacity: 1 }}
+            mr={{ base: 2, md: 2 }}
+            sx={{ touchAction: "manipulation" }}
+          />
+        </Tooltip>
+        
         <IconButton
           aria-label="Decrease font size"
           icon={<VscRemove fontSize="10px" />}
