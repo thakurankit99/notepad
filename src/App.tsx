@@ -14,6 +14,7 @@ import animals from "./animals.json";
 import languages from "./languages.json";
 import Rustpad, { UserInfo } from "./rustpad";
 import useHash from "./useHash";
+import { detectLanguage } from "./languageDetector";
 
 // Check if device is mobile
 function isMobileDevice() {
@@ -65,6 +66,11 @@ function App() {
   // Add font size state with localStorage persistence
   const [fontSize, setFontSize] = useLocalStorageState("fontSize", {
     defaultValue: 13
+  });
+  
+  // Add auto language detection preference
+  const [autoDetectLanguage, setAutoDetectLanguage] = useLocalStorageState("autoDetectLanguage", {
+    defaultValue: true
   });
   
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorageState("sidebarCollapsed", {
@@ -231,18 +237,68 @@ function App() {
     };
   }, []);
 
-  function handleLanguageChange(language: string) {
+  // Add paste event handling for auto language detection
+  useEffect(() => {
+    if (!editor || !autoDetectLanguage) return;
+    
+    const handlePaste = async () => {
+      // Wait a short time for the paste to complete
+      setTimeout(() => {
+        try {
+          const model = editor.getModel();
+          if (!model) return;
+          
+          const content = model.getValue();
+          if (!content || content.trim().length === 0) return;
+          
+          // Detect language from content
+          const detectedLang = detectLanguage(content);
+          
+          // Only update if detected language is different from current
+          if (detectedLang !== language && languages.includes(detectedLang as never)) {
+            handleLanguageChange(detectedLang, true);
+          }
+        } catch (error) {
+          console.error("Error in language detection:", error);
+        }
+      }, 100);
+    };
+    
+    // Add paste event listener to editor instance
+    const editorDomNode = editor.getDomNode();
+    if (editorDomNode) {
+      editorDomNode.addEventListener('paste', handlePaste);
+    }
+    
+    // Also add a model content change listener as backup
+    const disposable = editor.onDidChangeModelContent(event => {
+      // Only run detection for large content changes (likely pastes)
+      if (event.changes.some(change => 
+        (change.text.length > 50 || change.text.includes('\n')))) {
+        handlePaste();
+      }
+    });
+    
+    return () => {
+      if (editorDomNode) {
+        editorDomNode.removeEventListener('paste', handlePaste);
+      }
+      disposable.dispose();
+    };
+  }, [editor, language, autoDetectLanguage]);
+
+  function handleLanguageChange(language: string, isAutoDetected = false) {
     setLanguage(language);
     if (rustpad.current?.setLanguage(language)) {
       toast({
-        title: "Language updated",
+        title: isAutoDetected ? "Language auto-detected" : "Language updated",
         description: (
           <>
-            Switched to{" "}
+            {isAutoDetected ? "Detected " : "Switched to "}
             <Text as="span" fontWeight="semibold">
               {language}
             </Text>
-            {" "}formatting.
+            {isAutoDetected ? " code" : " formatting."}
           </>
         ),
         status: "info",
@@ -283,6 +339,19 @@ function App() {
 
   function handleSidebarToggle() {
     setSidebarCollapsed(!sidebarCollapsed);
+  }
+
+  function handleAutoDetectLanguageChange(enabled: boolean) {
+    setAutoDetectLanguage(enabled);
+    toast({
+      title: enabled ? "Auto-detection enabled" : "Auto-detection disabled",
+      description: enabled 
+        ? "Language will be automatically detected when code is pasted" 
+        : "Language auto-detection turned off",
+      status: "info",
+      duration: 2000,
+      isClosable: true,
+    });
   }
 
   return (
@@ -331,6 +400,8 @@ function App() {
           onChangeColor={() => setHue(generateHue())}
           collapsed={sidebarCollapsed}
           onToggle={handleSidebarToggle}
+          autoDetectLanguage={autoDetectLanguage}
+          onAutoDetectLanguageChange={handleAutoDetectLanguageChange}
         />
         <ReadCodeConfirm
           isOpen={readCodeConfirmOpen}
