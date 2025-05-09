@@ -18,8 +18,8 @@
   transition-delay: 1s !important;
 }
 
-/* Override any additional editor widgets */
-.monaco-editor .editor-widget {
+/* Override any additional editor widgets - but keep search widget interactive */
+.monaco-editor .editor-widget:not(.find-widget):not(.monaco-find-widget) {
   pointer-events: none !important;
 }
 
@@ -37,4 +37,30 @@
 /* Disable all tooltips in editor file path area */
 .monaco-hover-content {
   display: none !important;
+}
+
+/* Ensure search widget is interactive */
+.monaco-editor .find-widget,
+.monaco-editor .monaco-find-widget {
+  pointer-events: auto !important;
+  z-index: 100 !important; 
+  touch-action: manipulation !important;
+}
+
+.monaco-editor .findMatch,
+.monaco-editor .monaco-findInput,
+.monaco-editor .monaco-findInput .input,
+.monaco-editor .monaco-custom-checkbox,
+.monaco-editor .monaco-editor-background,
+.monaco-editor .buttons-container,
+.monaco-editor .button {
+  pointer-events: auto !important;
+  touch-action: manipulation !important;
+}
+
+/* Ensure search widget inputs are clickable and styled properly */
+.monaco-editor .monaco-inputbox > .wrapper > .input,
+.monaco-editor .monaco-inputbox > .wrapper > textarea {
+  pointer-events: auto !important;
+  touch-action: manipulation !important;
 } 
