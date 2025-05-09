@@ -15,6 +15,12 @@ import languages from "./languages.json";
 import Rustpad, { UserInfo } from "./rustpad";
 import useHash from "./useHash";
 
+// Check if device is mobile
+function isMobileDevice() {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+         (window.innerWidth <= 768);
+}
+
 function getWsUri(id: string) {
   let url = new URL(`api/socket/${id}`, window.location.href);
   url.protocol = url.protocol == "https:" ? "wss:" : "ws:";
@@ -49,6 +55,7 @@ function App() {
     defaultValue: generateHue,
   });
   const [editor, setEditor] = useState<editor.IStandaloneCodeEditor>();
+  const [isMobile, setIsMobile] = useState(false);
   
   // Use system theme as default
   const [darkMode, setDarkMode] = useLocalStorageState("darkMode", {
@@ -67,6 +74,32 @@ function App() {
   const id = useHash();
 
   const [readCodeConfirmOpen, setReadCodeConfirmOpen] = useState(false);
+
+  // Check if the device is mobile
+  useEffect(() => {
+    setIsMobile(isMobileDevice());
+    
+    const handleResize = () => {
+      setIsMobile(isMobileDevice());
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Add CSS to ensure footer visibility on mobile
+  useEffect(() => {
+    // Add viewport height check to handle mobile browsers properly
+    const setViewportHeight = () => {
+      const vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty('--vh', `${vh}px`);
+    };
+
+    setViewportHeight();
+    window.addEventListener('resize', setViewportHeight);
+
+    return () => window.removeEventListener('resize', setViewportHeight);
+  }, []);
 
   // Listen for system theme changes
   useEffect(() => {
@@ -255,7 +288,7 @@ function App() {
   return (
     <Flex
       direction="column"
-      h="100vh"
+      h={{ base: "calc(var(--vh, 1vh) * 100)", md: "100vh" }}
       overflow="hidden"
       bgColor={darkMode ? "#1e1e1e" : "white"}
       color={darkMode ? "#cbcaca" : "inherit"}
@@ -270,6 +303,7 @@ function App() {
         alignItems="center"
         justifyContent="center"
         position="relative"
+        zIndex={5}
       >
         <Flex 
           position="absolute" 
@@ -283,7 +317,7 @@ function App() {
         </Flex>
         <Text fontWeight="medium">Code Beautifier</Text>
       </Flex>
-      <Flex flex="1 0" minH={0}>
+      <Flex flex="1 0" minH={0} position="relative">
         <Sidebar
           connection={connection}
           darkMode={darkMode}
@@ -307,8 +341,12 @@ function App() {
           }}
         />
 
-        <Flex flex={1} minW={0} h="100%" direction="column" overflow="hidden">
-          <Box flex={1} minH={0}>
+        <Flex flex={1} minW={0} h="100%" direction="column" overflow="hidden" position="relative">
+          <Box 
+            flex={1} 
+            minH={0}
+            position="relative"
+          >
             <Editor
               theme={darkMode ? "vs-dark" : "vs"}
               language={language}
@@ -328,7 +366,16 @@ function App() {
                   return null;
                 });
               }}
-              onMount={(editor) => setEditor(editor)}
+              onMount={(editor) => {
+                setEditor(editor);
+                // Make the editor easier to use on mobile
+                if (isMobile) {
+                  editor.updateOptions({
+                    fontSize: fontSize,
+                    lineHeight: 1.6
+                  });
+                }
+              }}
             />
           </Box>
         </Flex>
