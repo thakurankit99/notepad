@@ -97,17 +97,25 @@ function App() {
       if (e.ctrlKey || e.metaKey) {
         if (e.key === '+' || e.key === '=') {
           e.preventDefault(); // Prevent browser zoom
-          increaseTextSize();
+          const newSize = Math.min(fontSize + 1, 24); // Maximum font size
+          setFontSize(newSize);
+          if (editor) {
+            editor.updateOptions({ fontSize: newSize });
+          }
         } else if (e.key === '-' || e.key === '_') {
           e.preventDefault(); // Prevent browser zoom
-          decreaseTextSize();
+          const newSize = Math.max(fontSize - 1, 8); // Minimum font size
+          setFontSize(newSize);
+          if (editor) {
+            editor.updateOptions({ fontSize: newSize });
+          }
         }
       }
     };
     
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [fontSize]); // Re-add listener when fontSize changes to ensure correct state
+  }, [fontSize, editor, setFontSize]);
 
   // Function to copy current URL to clipboard
   const copyUrlToClipboard = () => {
@@ -189,23 +197,6 @@ function App() {
       document.removeEventListener('mousemove', handleMouseMove);
     };
   }, []);
-
-  // Text zoom functions
-  const increaseTextSize = () => {
-    const newSize = Math.min(fontSize + 1, 24); // Maximum font size
-    setFontSize(newSize);
-    if (editor) {
-      editor.updateOptions({ fontSize: newSize });
-    }
-  };
-
-  const decreaseTextSize = () => {
-    const newSize = Math.max(fontSize - 1, 8); // Minimum font size
-    setFontSize(newSize);
-    if (editor) {
-      editor.updateOptions({ fontSize: newSize });
-    }
-  };
 
   function handleLanguageChange(language: string) {
     setLanguage(language);
@@ -291,41 +282,6 @@ function App() {
           <Text ml={1} fontSize="xs" fontWeight="medium">{id}</Text>
         </Flex>
         <Text fontWeight="medium">Code Beautifier</Text>
-        
-        {/* Add font size controls */}
-        <Flex 
-          position="absolute" 
-          right={3} 
-          alignItems="center"
-        >
-          <Tooltip label="Decrease font size (Ctrl/Cmd + -)" openDelay={500}>
-            <IconButton
-              aria-label="Decrease font size"
-              icon={<VscRemove />}
-              size="xs"
-              variant="ghost"
-              onClick={decreaseTextSize}
-              mr={1}
-              color={darkMode ? "gray.300" : "gray.600"}
-            />
-          </Tooltip>
-          <Tooltip label="Current font size">
-            <Text fontSize="xs" mx={1} minW="20px" textAlign="center">
-              {fontSize}
-            </Text>
-          </Tooltip>
-          <Tooltip label="Increase font size (Ctrl/Cmd + +)" openDelay={500}>
-            <IconButton
-              aria-label="Increase font size"
-              icon={<VscAdd />}
-              size="xs"
-              variant="ghost"
-              onClick={increaseTextSize}
-              ml={1}
-              color={darkMode ? "gray.300" : "gray.600"}
-            />
-          </Tooltip>
-        </Flex>
       </Flex>
       <Flex flex="1 0" minH={0}>
         <Sidebar
@@ -377,7 +333,13 @@ function App() {
           </Box>
         </Flex>
       </Flex>
-      <Footer users={users} />
+      <Footer 
+        users={users} 
+        fontSize={fontSize} 
+        setFontSize={setFontSize} 
+        editor={editor}
+        darkMode={darkMode}
+      />
     </Flex>
   );
 }

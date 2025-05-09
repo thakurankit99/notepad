@@ -219,7 +219,7 @@ function Sidebar({
       </Text>
       
       <Text fontSize="xs" color={darkMode ? "gray.400" : "gray.500"} mt={1} mb={2}>
-        Use the +/- buttons in the top bar to adjust text size
+        Use the +/- slider in the footer to adjust text size
       </Text>
 
       <Button
