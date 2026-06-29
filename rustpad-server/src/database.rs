@@ -51,18 +51,24 @@ impl Database {
     }
 
     /// Load the text of a document from the database.
-    pub async fn load(&self, document_id: &str) -> Result<PersistedDocument> {
+    ///
+    /// Returns `Ok(None)` when the document genuinely does not exist, and
+    /// `Err(..)` only on an actual database failure. Distinguishing the two is
+    /// critical: a transient error (e.g. a suspended database instance waking
+    /// up) must never be mistaken for an empty document, or the caller could
+    /// overwrite real saved content with a blank.
+    pub async fn load(&self, document_id: &str) -> Result<Option<PersistedDocument>> {
         debug!("Loading document: {}", document_id);
         let result = sqlx::query_as(r#"SELECT text, language FROM document WHERE id = $1"#)
             .bind(document_id)
-            .fetch_one(&self.pool)
-            .await;
-        
-        if result.is_err() {
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if result.is_none() {
             debug!("Document not found: {}", document_id);
         }
-        
-        result.map_err(|e| e.into())
+
+        Ok(result)
     }
 
     /// Store the text of a document in the database.
@@ -93,6 +99,19 @@ ON CONFLICT(id) DO UPDATE SET
             bail!(msg);
         }
         
+        Ok(())
+    }
+
+    /// Delete a document from the database, if present.
+    ///
+    /// Used to keep storage minimal: idle documents are removed entirely rather
+    /// than left behind as rows.
+    pub async fn delete(&self, document_id: &str) -> Result<()> {
+        debug!("Deleting document: {}", document_id);
+        sqlx::query(r#"DELETE FROM document WHERE id = $1"#)
+            .bind(document_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 

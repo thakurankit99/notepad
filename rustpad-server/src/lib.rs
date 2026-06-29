@@ -7,13 +7,16 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use dashmap::DashMap;
-use log::{error, info};
+use log::{error, info, warn};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use tokio::time::{self, Instant};
+use tokio::time;
 use warp::{filters::BoxedFilter, http::StatusCode, ws::Ws, Filter, Rejection, Reply};
 
-use crate::{database::Database, rustpad::Rustpad};
+use crate::{
+    database::Database,
+    rustpad::{max_document_bytes, Rustpad},
+};
 
 pub mod database;
 mod ot;
@@ -22,19 +25,16 @@ mod rustpad;
 /// An entry stored in the global server map.
 ///
 /// Each entry corresponds to a single document. This is garbage collected by a
-/// background task after one day of inactivity, to avoid server memory usage
-/// growing without bound.
+/// background task once no client has it open for a short idle period, so that
+/// neither server memory nor the database grows without bound. Idle activity is
+/// tracked on the `Rustpad` itself (see `Rustpad::idle_for`).
 struct Document {
-    last_accessed: Instant,
     rustpad: Arc<Rustpad>,
 }
 
 impl Document {
     fn new(rustpad: Arc<Rustpad>) -> Self {
-        Self {
-            last_accessed: Instant::now(),
-            rustpad,
-        }
+        Self { rustpad }
     }
 }
 
@@ -107,7 +107,7 @@ fn backend(config: ServerConfig) -> BoxedFilter<(impl Reply,)> {
         documents: Default::default(),
         database: config.database,
     };
-    tokio::spawn(cleaner(state.clone(), config.expiry_days));
+    tokio::spawn(cleaner(state.clone(), idle_clear_duration()));
     tokio::spawn(session_cleaner(state.clone()));
 
     let state_filter = warp::any().map(move || state.clone());
@@ -130,10 +130,13 @@ fn backend(config: ServerConfig) -> BoxedFilter<(impl Reply,)> {
         .and(state_filter.clone())
         .and_then(poll_handler);
 
+    // Allow a body large enough to carry a full-document paste (JSON-escaped,
+    // so roughly double the raw text), tied to the configured document cap.
+    let body_limit = (max_document_bytes() as u64).saturating_mul(2);
     let send = warp::path!("send" / String)
         .and(warp::query::<PollQuery>())
         .and(warp::post())
-        .and(warp::body::content_length_limit(512 * 1024))
+        .and(warp::body::content_length_limit(body_limit))
         .and(warp::body::json())
         .and(state_filter.clone())
         .and_then(send_handler);
@@ -171,16 +174,27 @@ struct PollQuery {
 ///
 /// Mirrors the get-or-create logic previously inlined in `socket_handler`, so
 /// the WebSocket and long-polling endpoints share a single code path.
-async fn get_document(state: &ServerState, id: &str) -> Arc<Rustpad> {
+async fn get_document(state: &ServerState, id: &str) -> Result<Arc<Rustpad>, Rejection> {
     use dashmap::mapref::entry::Entry;
 
-    let mut entry = match state.documents.entry(id.to_string()) {
+    let entry = match state.documents.entry(id.to_string()) {
         Entry::Occupied(e) => e.into_ref(),
         Entry::Vacant(e) => {
-            let rustpad = Arc::new(match &state.database {
-                Some(db) => db.load(id).await.map(Rustpad::from).unwrap_or_default(),
+            let rustpad = match &state.database {
+                Some(db) => match db.load(id).await {
+                    Ok(Some(doc)) => Rustpad::from(doc),
+                    Ok(None) => Rustpad::default(),
+                    // A real database error must not be turned into an empty
+                    // document: that could clobber real saved content on the
+                    // next persist. Reject so the client simply retries.
+                    Err(err) => {
+                        error!("failed to load document {}: {}", id, err);
+                        return Err(warp::reject::custom(CustomReject(err)));
+                    }
+                },
                 None => Rustpad::default(),
-            });
+            };
+            let rustpad = Arc::new(rustpad);
             if let Some(db) = &state.database {
                 tokio::spawn(persister(id.to_string(), Arc::clone(&rustpad), db.clone()));
             }
@@ -188,14 +202,18 @@ async fn get_document(state: &ServerState, id: &str) -> Arc<Rustpad> {
         }
     };
 
-    let value = entry.value_mut();
-    value.last_accessed = Instant::now();
-    Arc::clone(&value.rustpad)
+    let rustpad = Arc::clone(&entry.rustpad);
+    rustpad.touch();
+    Ok(rustpad)
 }
 
 /// Handler for the `/api/socket/{id}` endpoint.
 async fn socket_handler(id: String, ws: Ws, state: ServerState) -> Result<impl Reply, Rejection> {
-    let rustpad = get_document(&state, &id).await;
+    let rustpad = get_document(&state, &id).await?;
+    // Permit messages large enough to carry a full-document history (e.g. a
+    // multi-megabyte log pasted in one operation), sized from the document cap.
+    let limit = max_document_bytes().saturating_mul(2);
+    let ws = ws.max_message_size(limit).max_frame_size(limit);
     Ok(ws.on_upgrade(|socket| async move { rustpad.on_connection(socket).await }))
 }
 
@@ -204,16 +222,27 @@ async fn socket_handler(id: String, ws: Ws, state: ServerState) -> Result<impl R
 /// Establishes a new polling session and returns its token together with the
 /// initial burst of messages.
 async fn connect_handler(id: String, state: ServerState) -> Result<impl Reply, Rejection> {
-    let rustpad = get_document(&state, &id).await;
+    let rustpad = get_document(&state, &id).await?;
     let (session, messages) = rustpad.new_poll_session();
     Ok(warp::reply::json(
         &serde_json::json!({ "session": session, "messages": messages }),
     ))
 }
 
-/// Long-poll hold duration. Kept under typical proxy idle timeouts (Zscaler and
-/// similar) so the request looks like an ordinary, promptly-returning HTTPS GET.
-const POLL_TIMEOUT: Duration = Duration::from_secs(20);
+/// Default long-poll hold duration, in seconds. Kept under typical intermediary
+/// idle timeouts so the request always returns before any proxy or load
+/// balancer resets it, and still looks like an ordinary, promptly-returning
+/// HTTPS GET. Override with `POLL_TIMEOUT_SECS`.
+const DEFAULT_POLL_TIMEOUT_SECS: u64 = 15;
+
+/// The configured long-poll hold duration.
+fn poll_timeout() -> Duration {
+    let secs = std::env::var("POLL_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_POLL_TIMEOUT_SECS);
+    Duration::from_secs(secs)
+}
 
 /// Handler for the `/api/poll/{id}` endpoint (long-polling).
 async fn poll_handler(
@@ -221,8 +250,8 @@ async fn poll_handler(
     query: PollQuery,
     state: ServerState,
 ) -> Result<impl Reply, Rejection> {
-    let rustpad = get_document(&state, &id).await;
-    match rustpad.poll_session(&query.session, POLL_TIMEOUT).await {
+    let rustpad = get_document(&state, &id).await?;
+    match rustpad.poll_session(&query.session, poll_timeout()).await {
         Some(messages) => Ok(warp::reply::with_status(
             warp::reply::json(&messages),
             StatusCode::OK,
@@ -241,7 +270,7 @@ async fn send_handler(
     body: serde_json::Value,
     state: ServerState,
 ) -> Result<impl Reply, Rejection> {
-    let rustpad = get_document(&state, &id).await;
+    let rustpad = get_document(&state, &id).await?;
     match rustpad.apply_poll_message(&query.session, &body.to_string()) {
         Ok(()) => Ok(StatusCode::OK),
         Err(_) => Ok(StatusCode::CONFLICT),
@@ -254,8 +283,12 @@ async fn text_handler(id: String, state: ServerState) -> Result<impl Reply, Reje
         Some(value) => value.rustpad.text(),
         None => {
             if let Some(db) = &state.database {
+                // On a database error, fall back to empty rather than failing
+                // the read; this endpoint is a best-effort text snapshot.
                 db.load(&id)
                     .await
+                    .ok()
+                    .flatten()
                     .map(|document| document.text)
                     .unwrap_or_default()
             } else {
@@ -282,21 +315,46 @@ async fn stats_handler(start_time: u64, state: ServerState) -> Result<impl Reply
     }))
 }
 
-const HOUR: Duration = Duration::from_secs(3600);
+/// How often to sweep for idle documents.
+const CLEAN_INTERVAL: Duration = Duration::from_secs(60);
 
-/// Reclaims memory for documents.
-async fn cleaner(state: ServerState, expiry_days: u32) {
+/// Default idle period after which a document with no clients is cleared.
+const DEFAULT_IDLE_CLEAR_SECS: u64 = 300;
+
+/// The idle period after which an unused document is cleared from memory and
+/// deleted from the database. Override with `IDLE_CLEAR_SECS`.
+fn idle_clear_duration() -> Duration {
+    let secs = std::env::var("IDLE_CLEAR_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_IDLE_CLEAR_SECS);
+    Duration::from_secs(secs)
+}
+
+/// Clears documents that no client has had open for `idle`, removing them from
+/// memory and deleting their stored row so neither grows without bound.
+async fn cleaner(state: ServerState, idle: Duration) {
     loop {
-        time::sleep(HOUR).await;
-        let mut keys = Vec::new();
-        for entry in &*state.documents {
-            if entry.last_accessed.elapsed() > HOUR * 24 * expiry_days {
-                keys.push(entry.key().clone());
-            }
+        time::sleep(CLEAN_INTERVAL).await;
+        let keys: Vec<String> = state
+            .documents
+            .iter()
+            .filter(|entry| entry.rustpad.idle_for() > idle)
+            .map(|entry| entry.key().clone())
+            .collect();
+        if keys.is_empty() {
+            continue;
         }
-        info!("cleaner removing keys: {:?}", keys);
+        info!("cleaner clearing idle documents: {:?}", keys);
         for key in keys {
+            // Drop from memory first (this kills the document and stops its
+            // persister), then delete the stored row.
             state.documents.remove(&key);
+            if let Some(db) = &state.database {
+                if let Err(e) = db.delete(&key).await {
+                    warn!("when deleting idle document {}: {}", key, e);
+                }
+            }
         }
     }
 }
@@ -305,7 +363,8 @@ async fn cleaner(state: ServerState, expiry_days: u32) {
 const SESSION_SWEEP_INTERVAL: Duration = Duration::from_secs(15);
 
 /// A polling session is dropped if it has not polled or sent within this window.
-/// Comfortably larger than `POLL_TIMEOUT` so a client mid-poll is never reaped.
+/// Comfortably larger than the long-poll hold so a client mid-poll is never
+/// reaped (keep above `POLL_TIMEOUT_SECS` if that is raised).
 const SESSION_MAX_IDLE: Duration = Duration::from_secs(45);
 
 /// Removes idle long-polling sessions across all documents, freeing their
@@ -324,18 +383,27 @@ const PERSIST_INTERVAL_JITTER: Duration = Duration::from_secs(1);
 
 /// Persists changed documents after a fixed time interval.
 async fn persister(id: String, rustpad: Arc<Rustpad>, db: Database) {
-    let mut last_revision = 0;
+    // Start from the current revision so a freshly loaded, unedited document is
+    // not needlessly re-written; only genuine new edits are persisted.
+    let mut last_revision = rustpad.revision();
     while !rustpad.killed() {
         let interval = PERSIST_INTERVAL
             + rand::thread_rng().gen_range(Duration::ZERO..=PERSIST_INTERVAL_JITTER);
         time::sleep(interval).await;
         let revision = rustpad.revision();
         if revision > last_revision {
-            info!("persisting revision {} for id = {}", revision, id);
-            if let Err(e) = db.store(&id, &rustpad.snapshot()).await {
-                error!("when persisting document {}: {}", id, e);
+            let snapshot = rustpad.snapshot();
+            // Keep storage minimal: a document that has been emptied is deleted
+            // rather than stored as a blank row.
+            let result = if snapshot.text.is_empty() && snapshot.language.is_none() {
+                db.delete(&id).await
             } else {
-                last_revision = revision;
+                info!("persisting revision {} for id = {}", revision, id);
+                db.store(&id, &snapshot).await
+            };
+            match result {
+                Ok(()) => last_revision = revision,
+                Err(e) => error!("when persisting document {}: {}", id, e),
             }
         }
     }

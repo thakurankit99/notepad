@@ -82,8 +82,11 @@ async fn test_large_document() -> Result<()> {
     let msg = client.recv().await?;
     assert_eq!(msg, json!({ "Identity": 0 }));
 
+    // A multi-hundred-kilobyte insert (far below the configurable cap) is
+    // accepted in a single operation, so large logs can be synced at once.
+    let big = "a".repeat(500_000);
     let mut operation = OperationSeq::default();
-    operation.insert(&"a".repeat(5000));
+    operation.insert(&big);
     let msg = json!({
         "Edit": {
             "revision": 0,
@@ -91,18 +94,10 @@ async fn test_large_document() -> Result<()> {
         }
     });
     client.send(&msg).await;
+    // The history is echoed back and the connection stays open (not rejected).
     client.recv().await?;
 
-    let mut operation = OperationSeq::default();
-    operation.insert(&"a".repeat(500000));
-    let msg = json!({
-        "Edit": {
-            "revision": 0,
-            "operation": operation
-        }
-    });
-    client.send(&msg).await;
-    client.recv_closed().await?;
+    expect_text(&filter, "stress", &big).await;
 
     Ok(())
 }

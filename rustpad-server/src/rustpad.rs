@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
@@ -17,6 +17,27 @@ use tokio::sync::{broadcast, Mutex as AsyncMutex, Notify};
 use warp::ws::{Message, WebSocket};
 
 use crate::{database::PersistedDocument, ot::transform_index};
+
+/// Interval at which the server pings idle WebSocket clients to keep the
+/// connection from being reset by an intermediary with an idle timeout.
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Default maximum document size, in Unicode code points. Large enough to hold
+/// a sizeable log (tens of thousands of lines) while still bounding memory.
+const DEFAULT_MAX_DOC_BYTES: usize = 16 * 1024 * 1024;
+
+/// The maximum size a document may reach, in Unicode code points. Bounds memory
+/// use and rejects pathological input. Override with `MAX_DOC_BYTES`.
+pub fn max_document_bytes() -> usize {
+    static MAX: OnceLock<usize> = OnceLock::new();
+    *MAX.get_or_init(|| {
+        std::env::var("MAX_DOC_BYTES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(DEFAULT_MAX_DOC_BYTES)
+    })
+}
 
 /// State for a single HTTP long-polling client.
 ///
@@ -50,6 +71,9 @@ pub struct Rustpad {
     killed: AtomicBool,
     /// Active HTTP long-polling sessions, keyed by an opaque session token.
     sessions: DashMap<String, Arc<PollSession>>,
+    /// Last time a client connected, polled, or sent a message. Used to detect
+    /// documents that no machine has open so they can be cleared.
+    last_active: Mutex<Instant>,
 }
 
 /// Shared state involving multiple users, protected by a lock.
@@ -131,6 +155,7 @@ impl Default for Rustpad {
             update: tx,
             killed: AtomicBool::new(false),
             sessions: Default::default(),
+            last_active: Mutex::new(Instant::now()),
         }
     }
 }
@@ -158,6 +183,7 @@ impl Rustpad {
     /// Handle a connection from a WebSocket.
     pub async fn on_connection(&self, socket: WebSocket) {
         let id = self.count.fetch_add(1, Ordering::Relaxed);
+        self.touch();
         info!("connection! id = {}", id);
         if let Err(e) = self.handle_connection(id, socket).await {
             warn!("connection terminated early: {}", e);
@@ -202,12 +228,23 @@ impl Rustpad {
         self.killed.load(Ordering::Relaxed)
     }
 
+    /// Record that a client is actively using this document right now.
+    pub fn touch(&self) {
+        *self.last_active.lock() = Instant::now();
+    }
+
+    /// How long since any client last connected, polled, or sent a message.
+    pub fn idle_for(&self) -> Duration {
+        self.last_active.lock().elapsed()
+    }
+
     /// Create a new HTTP long-polling session.
     ///
     /// Returns an opaque session token and the initial burst of messages
     /// (serialized as a JSON array), mirroring what a freshly connected
     /// WebSocket client would receive.
     pub fn new_poll_session(&self) -> (String, serde_json::Value) {
+        self.touch();
         let user_id = self.count.fetch_add(1, Ordering::Relaxed);
         info!("poll connection! id = {}", user_id);
         // Subscribe before snapshotting so no metadata update is missed.
@@ -237,6 +274,7 @@ impl Rustpad {
             Some(s) => Arc::clone(s.value()),
             None => return None,
         };
+        self.touch();
         *session.last_seen.lock() = Instant::now();
         // A single in-flight poll per session; serialized by this lock.
         let mut receiver = session.receiver.lock().await;
@@ -310,6 +348,7 @@ impl Rustpad {
     /// Returns an error if the session token is unknown or the message is
     /// invalid.
     pub fn apply_poll_message(&self, token: &str, text: &str) -> Result<()> {
+        self.touch();
         let user_id = match self.sessions.get(token) {
             Some(session) => {
                 *session.last_seen.lock() = Instant::now();
@@ -353,6 +392,12 @@ impl Rustpad {
 
         let mut revision: usize = self.send_initial(id, &mut socket).await?;
 
+        // Periodically ping the client so an idle connection is not reaped by
+        // an intermediary (load balancer / CDN) that resets connections with no
+        // traffic. The first tick fires immediately, so consume it up front.
+        let mut keepalive = tokio::time::interval(KEEPALIVE_INTERVAL);
+        keepalive.tick().await;
+
         loop {
             // In order to avoid the "lost wakeup" problem, we first request a
             // notification, **then** check the current state for new revisions.
@@ -367,6 +412,12 @@ impl Rustpad {
 
             tokio::select! {
                 _ = notified => {}
+                _ = keepalive.tick() => {
+                    // A live connection counts as activity, so the document is
+                    // not cleared out from under a client that is simply idle.
+                    self.touch();
+                    socket.send(Message::ping(Vec::new())).await?;
+                }
                 update = update_rx.recv() => {
                     socket.send(update?.into()).await?;
                 }
@@ -374,6 +425,7 @@ impl Rustpad {
                     match result {
                         None => break,
                         Some(message) => {
+                            self.touch();
                             self.handle_message(id, message?).await?;
                         }
                     }
@@ -524,10 +576,12 @@ impl Rustpad {
         for history_op in &state.operations[revision..] {
             operation = operation.transform(&history_op.operation)?.0;
         }
-        if operation.target_len() > 256 * 1024 {
+        let max_len = max_document_bytes();
+        if operation.target_len() > max_len {
             bail!(
-                "target length {} is greater than 256 KiB maximum",
-                operation.target_len()
+                "target length {} is greater than maximum of {}",
+                operation.target_len(),
+                max_len
             );
         }
         let new_text = operation.apply(&state.text)?;

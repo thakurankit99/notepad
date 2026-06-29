@@ -32,8 +32,8 @@ async fn test_database() -> Result<()> {
 
     let database = Database::new(&temp_sqlite_uri()?).await?;
 
-    assert!(database.load("hello").await.is_err());
-    assert!(database.load("world").await.is_err());
+    assert!(database.load("hello").await?.is_none());
+    assert!(database.load("world").await?.is_none());
 
     let doc1 = PersistedDocument {
         text: "Hello Text".into(),
@@ -41,8 +41,8 @@ async fn test_database() -> Result<()> {
     };
 
     assert!(database.store("hello", &doc1).await.is_ok());
-    assert_eq!(database.load("hello").await?, doc1);
-    assert!(database.load("world").await.is_err());
+    assert_eq!(database.load("hello").await?, Some(doc1.clone()));
+    assert!(database.load("world").await?.is_none());
 
     let doc2 = PersistedDocument {
         text: "print('World Text :)')".into(),
@@ -50,11 +50,11 @@ async fn test_database() -> Result<()> {
     };
 
     assert!(database.store("world", &doc2).await.is_ok());
-    assert_eq!(database.load("hello").await?, doc1);
-    assert_eq!(database.load("world").await?, doc2);
+    assert_eq!(database.load("hello").await?, Some(doc1.clone()));
+    assert_eq!(database.load("world").await?, Some(doc2.clone()));
 
     assert!(database.store("hello", &doc2).await.is_ok());
-    assert_eq!(database.load("hello").await?, doc2);
+    assert_eq!(database.load("hello").await?, Some(doc2.clone()));
 
     Ok(())
 }
