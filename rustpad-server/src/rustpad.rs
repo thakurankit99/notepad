@@ -1,18 +1,40 @@
 //! Eventually consistent server-side logic for Rustpad.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
+use dashmap::DashMap;
 use futures::prelude::*;
 use log::{info, warn};
 use operational_transform::OperationSeq;
-use parking_lot::{RwLock, RwLockUpgradableReadGuard};
+use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, Notify};
+use tokio::sync::{broadcast, Mutex as AsyncMutex, Notify};
 use warp::ws::{Message, WebSocket};
 
 use crate::{database::PersistedDocument, ot::transform_index};
+
+/// State for a single HTTP long-polling client.
+///
+/// A polling session is the long-poll equivalent of a WebSocket connection. It
+/// exists so that clients behind proxies that block the WebSocket `Upgrade`
+/// handshake can still participate using ordinary HTTPS requests. Each session
+/// owns a user id and a broadcast receiver that persist across the individual,
+/// short-lived poll requests.
+struct PollSession {
+    /// The user id assigned to this session, as used in the shared state.
+    user_id: u64,
+    /// Receiver for metadata updates, held across separate poll requests.
+    receiver: AsyncMutex<broadcast::Receiver<ServerMsg>>,
+    /// The last operation revision already delivered to this session.
+    last_revision: AtomicUsize,
+    /// When this session was last seen, used to garbage collect idle sessions.
+    last_seen: Mutex<Instant>,
+}
 
 /// The main object representing a collaborative session.
 pub struct Rustpad {
@@ -26,6 +48,8 @@ pub struct Rustpad {
     update: broadcast::Sender<ServerMsg>,
     /// Set to true when the document is destroyed.
     killed: AtomicBool,
+    /// Active HTTP long-polling sessions, keyed by an opaque session token.
+    sessions: DashMap<String, Arc<PollSession>>,
 }
 
 /// Shared state involving multiple users, protected by a lock.
@@ -106,6 +130,7 @@ impl Default for Rustpad {
             notify: Default::default(),
             update: tx,
             killed: AtomicBool::new(false),
+            sessions: Default::default(),
         }
     }
 }
@@ -177,6 +202,152 @@ impl Rustpad {
         self.killed.load(Ordering::Relaxed)
     }
 
+    /// Create a new HTTP long-polling session.
+    ///
+    /// Returns an opaque session token and the initial burst of messages
+    /// (serialized as a JSON array), mirroring what a freshly connected
+    /// WebSocket client would receive.
+    pub fn new_poll_session(&self) -> (String, serde_json::Value) {
+        let user_id = self.count.fetch_add(1, Ordering::Relaxed);
+        info!("poll connection! id = {}", user_id);
+        // Subscribe before snapshotting so no metadata update is missed.
+        let receiver = self.update.subscribe();
+        let (messages, revision) = self.build_initial(user_id);
+        let token = format!("{:016x}", rand::thread_rng().gen::<u64>());
+        self.sessions.insert(
+            token.clone(),
+            Arc::new(PollSession {
+                user_id,
+                receiver: AsyncMutex::new(receiver),
+                last_revision: AtomicUsize::new(revision),
+                last_seen: Mutex::new(Instant::now()),
+            }),
+        );
+        let value = serde_json::to_value(&messages).expect("failed to serialize initial messages");
+        (token, value)
+    }
+
+    /// Long-poll for new messages on a session, blocking up to `timeout`.
+    ///
+    /// Returns `None` if the session token is unknown (expired or invalid), in
+    /// which case the client should reconnect. Otherwise returns a JSON array
+    /// of new messages, which may be empty if the timeout elapsed first.
+    pub async fn poll_session(&self, token: &str, timeout: Duration) -> Option<serde_json::Value> {
+        let session = match self.sessions.get(token) {
+            Some(s) => Arc::clone(s.value()),
+            None => return None,
+        };
+        *session.last_seen.lock() = Instant::now();
+        // A single in-flight poll per session; serialized by this lock.
+        let mut receiver = session.receiver.lock().await;
+        let deadline = tokio::time::Instant::now() + timeout;
+        let mut pending: Vec<ServerMsg> = Vec::new();
+
+        loop {
+            // Register interest in notifications *before* inspecting state, the
+            // same ordering the WebSocket handler uses, so an operation applied
+            // concurrently between the check and the wait cannot be lost.
+            let notified = self.notify.notified();
+
+            if self.killed() {
+                let value =
+                    serde_json::to_value(&pending).expect("failed to serialize messages");
+                return Some(value);
+            }
+
+            // Collect any new operation history beyond what this session has seen.
+            let last_rev = session.last_revision.load(Ordering::Relaxed);
+            let cur_rev = self.revision();
+            if cur_rev > last_rev {
+                let operations = {
+                    let state = self.state.read();
+                    state.operations[last_rev..].to_owned()
+                };
+                pending.push(ServerMsg::History {
+                    start: last_rev,
+                    operations,
+                });
+                session.last_revision.store(cur_rev, Ordering::Relaxed);
+            }
+
+            // Drain any buffered metadata updates without blocking.
+            loop {
+                match receiver.try_recv() {
+                    Ok(msg) => pending.push(msg),
+                    Err(broadcast::error::TryRecvError::Empty) => break,
+                    Err(broadcast::error::TryRecvError::Closed) => break,
+                    Err(broadcast::error::TryRecvError::Lagged(_)) => self.push_resync(&mut pending),
+                }
+            }
+
+            if !pending.is_empty() {
+                let value =
+                    serde_json::to_value(&pending).expect("failed to serialize messages");
+                return Some(value);
+            }
+
+            // Nothing ready: wait for an operation, a metadata update, or timeout.
+            tokio::select! {
+                _ = notified => {}
+                result = receiver.recv() => {
+                    match result {
+                        Ok(msg) => pending.push(msg),
+                        Err(broadcast::error::RecvError::Lagged(_)) => self.push_resync(&mut pending),
+                        Err(broadcast::error::RecvError::Closed) => {}
+                    }
+                }
+                _ = tokio::time::sleep_until(deadline) => {
+                    let value =
+                        serde_json::to_value(&pending).expect("failed to serialize messages");
+                    return Some(value);
+                }
+            }
+        }
+    }
+
+    /// Apply a client message received over the long-polling `send` endpoint.
+    ///
+    /// Returns an error if the session token is unknown or the message is
+    /// invalid.
+    pub fn apply_poll_message(&self, token: &str, text: &str) -> Result<()> {
+        let user_id = match self.sessions.get(token) {
+            Some(session) => {
+                *session.last_seen.lock() = Instant::now();
+                session.user_id
+            }
+            None => bail!("unknown session"),
+        };
+        let msg: ClientMsg =
+            serde_json::from_str(text).context("failed to deserialize message")?;
+        self.process_client_msg(user_id, msg)
+    }
+
+    /// Remove idle long-polling sessions, cleaning up their presence.
+    ///
+    /// A session whose last poll or send was longer ago than `max_idle` is
+    /// dropped, and its user is removed from the shared state exactly as a
+    /// WebSocket disconnect would do.
+    pub fn sweep_sessions(&self, max_idle: Duration) {
+        let now = Instant::now();
+        let stale: Vec<String> = self
+            .sessions
+            .iter()
+            .filter(|entry| now.duration_since(*entry.value().last_seen.lock()) > max_idle)
+            .map(|entry| entry.key().clone())
+            .collect();
+        for token in stale {
+            if let Some((_, session)) = self.sessions.remove(&token) {
+                let id = session.user_id;
+                info!("poll disconnection, id = {}", id);
+                self.state.write().users.remove(&id);
+                self.state.write().cursors.remove(&id);
+                self.update
+                    .send(ServerMsg::UserInfo { id, info: None })
+                    .ok();
+            }
+        }
+    }
+
     async fn handle_connection(&self, id: u64, mut socket: WebSocket) -> Result<()> {
         let mut update_rx = self.update.subscribe();
 
@@ -213,34 +384,63 @@ impl Rustpad {
         Ok(())
     }
 
+    /// Build the initial burst of messages for a newly connected client.
+    ///
+    /// Returns the messages (starting with the client's `Identity`) and the
+    /// current revision, so the caller can track which operations have already
+    /// been delivered. Shared by both the WebSocket and long-polling paths.
+    fn build_initial(&self, id: u64) -> (Vec<ServerMsg>, usize) {
+        let mut messages = vec![ServerMsg::Identity(id)];
+        let state = self.state.read();
+        if !state.operations.is_empty() {
+            messages.push(ServerMsg::History {
+                start: 0,
+                operations: state.operations.clone(),
+            });
+        }
+        if let Some(language) = &state.language {
+            messages.push(ServerMsg::Language(language.clone()));
+        }
+        for (&id, info) in &state.users {
+            messages.push(ServerMsg::UserInfo {
+                id,
+                info: Some(info.clone()),
+            });
+        }
+        for (&id, data) in &state.cursors {
+            messages.push(ServerMsg::UserCursor {
+                id,
+                data: data.clone(),
+            });
+        }
+        (messages, state.operations.len())
+    }
+
+    /// Push a full snapshot of metadata (language, users, cursors) onto `out`.
+    ///
+    /// Used to recover a long-polling session that fell too far behind the
+    /// metadata broadcast channel (a `Lagged` error).
+    fn push_resync(&self, out: &mut Vec<ServerMsg>) {
+        let state = self.state.read();
+        if let Some(language) = &state.language {
+            out.push(ServerMsg::Language(language.clone()));
+        }
+        for (&id, info) in &state.users {
+            out.push(ServerMsg::UserInfo {
+                id,
+                info: Some(info.clone()),
+            });
+        }
+        for (&id, data) in &state.cursors {
+            out.push(ServerMsg::UserCursor {
+                id,
+                data: data.clone(),
+            });
+        }
+    }
+
     async fn send_initial(&self, id: u64, socket: &mut WebSocket) -> Result<usize> {
-        socket.send(ServerMsg::Identity(id).into()).await?;
-        let mut messages = Vec::new();
-        let revision = {
-            let state = self.state.read();
-            if !state.operations.is_empty() {
-                messages.push(ServerMsg::History {
-                    start: 0,
-                    operations: state.operations.clone(),
-                });
-            }
-            if let Some(language) = &state.language {
-                messages.push(ServerMsg::Language(language.clone()));
-            }
-            for (&id, info) in &state.users {
-                messages.push(ServerMsg::UserInfo {
-                    id,
-                    info: Some(info.clone()),
-                });
-            }
-            for (&id, data) in &state.cursors {
-                messages.push(ServerMsg::UserCursor {
-                    id,
-                    data: data.clone(),
-                });
-            }
-            state.operations.len()
-        };
+        let (messages, revision) = self.build_initial(id);
         for msg in messages {
             socket.send(msg.into()).await?;
         }
@@ -270,6 +470,14 @@ impl Rustpad {
             Ok(text) => serde_json::from_str(text).context("failed to deserialize message")?,
             Err(()) => return Ok(()), // Ignore non-text messages
         };
+        self.process_client_msg(id, msg)
+    }
+
+    /// Apply a single decoded client message, regardless of transport.
+    ///
+    /// Shared by the WebSocket handler and the HTTP long-polling `send`
+    /// endpoint, so both paths drive the same operational-transform logic.
+    fn process_client_msg(&self, id: u64, msg: ClientMsg) -> Result<()> {
         match msg {
             ClientMsg::Edit {
                 revision,

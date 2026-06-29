@@ -9,9 +9,9 @@ use std::time::{Duration, SystemTime};
 use dashmap::DashMap;
 use log::{error, info};
 use rand::Rng;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::time::{self, Instant};
-use warp::{filters::BoxedFilter, ws::Ws, Filter, Rejection, Reply};
+use warp::{filters::BoxedFilter, http::StatusCode, ws::Ws, Filter, Rejection, Reply};
 
 use crate::{database::Database, rustpad::Rustpad};
 
@@ -108,6 +108,7 @@ fn backend(config: ServerConfig) -> BoxedFilter<(impl Reply,)> {
         database: config.database,
     };
     tokio::spawn(cleaner(state.clone(), config.expiry_days));
+    tokio::spawn(session_cleaner(state.clone()));
 
     let state_filter = warp::any().map(move || state.clone());
 
@@ -115,6 +116,27 @@ fn backend(config: ServerConfig) -> BoxedFilter<(impl Reply,)> {
         .and(warp::ws())
         .and(state_filter.clone())
         .and_then(socket_handler);
+
+    // HTTP long-polling fallback for clients behind proxies that block the
+    // WebSocket upgrade. These are ordinary HTTPS requests carrying the same
+    // protocol messages as the WebSocket transport.
+    let connect = warp::path!("connect" / String)
+        .and(warp::post())
+        .and(state_filter.clone())
+        .and_then(connect_handler);
+
+    let poll = warp::path!("poll" / String)
+        .and(warp::query::<PollQuery>())
+        .and(state_filter.clone())
+        .and_then(poll_handler);
+
+    let send = warp::path!("send" / String)
+        .and(warp::query::<PollQuery>())
+        .and(warp::post())
+        .and(warp::body::content_length_limit(512 * 1024))
+        .and(warp::body::json())
+        .and(state_filter.clone())
+        .and_then(send_handler);
 
     let text = warp::path!("text" / String)
         .and(state_filter.clone())
@@ -129,22 +151,38 @@ fn backend(config: ServerConfig) -> BoxedFilter<(impl Reply,)> {
         .and(state_filter)
         .and_then(stats_handler);
 
-    socket.or(text).or(stats).boxed()
+    socket
+        .or(connect)
+        .or(poll)
+        .or(send)
+        .or(text)
+        .or(stats)
+        .boxed()
 }
 
-/// Handler for the `/api/socket/{id}` endpoint.
-async fn socket_handler(id: String, ws: Ws, state: ServerState) -> Result<impl Reply, Rejection> {
+/// Query parameters for the long-polling `poll` and `send` endpoints.
+#[derive(Deserialize)]
+struct PollQuery {
+    /// Opaque session token returned by the `connect` endpoint.
+    session: String,
+}
+
+/// Look up the document for `id`, loading or creating it if necessary.
+///
+/// Mirrors the get-or-create logic previously inlined in `socket_handler`, so
+/// the WebSocket and long-polling endpoints share a single code path.
+async fn get_document(state: &ServerState, id: &str) -> Arc<Rustpad> {
     use dashmap::mapref::entry::Entry;
 
-    let mut entry = match state.documents.entry(id.clone()) {
+    let mut entry = match state.documents.entry(id.to_string()) {
         Entry::Occupied(e) => e.into_ref(),
         Entry::Vacant(e) => {
             let rustpad = Arc::new(match &state.database {
-                Some(db) => db.load(&id).await.map(Rustpad::from).unwrap_or_default(),
+                Some(db) => db.load(id).await.map(Rustpad::from).unwrap_or_default(),
                 None => Rustpad::default(),
             });
             if let Some(db) = &state.database {
-                tokio::spawn(persister(id, Arc::clone(&rustpad), db.clone()));
+                tokio::spawn(persister(id.to_string(), Arc::clone(&rustpad), db.clone()));
             }
             e.insert(Document::new(rustpad))
         }
@@ -152,8 +190,62 @@ async fn socket_handler(id: String, ws: Ws, state: ServerState) -> Result<impl R
 
     let value = entry.value_mut();
     value.last_accessed = Instant::now();
-    let rustpad = Arc::clone(&value.rustpad);
+    Arc::clone(&value.rustpad)
+}
+
+/// Handler for the `/api/socket/{id}` endpoint.
+async fn socket_handler(id: String, ws: Ws, state: ServerState) -> Result<impl Reply, Rejection> {
+    let rustpad = get_document(&state, &id).await;
     Ok(ws.on_upgrade(|socket| async move { rustpad.on_connection(socket).await }))
+}
+
+/// Handler for the `/api/connect/{id}` endpoint (long-polling).
+///
+/// Establishes a new polling session and returns its token together with the
+/// initial burst of messages.
+async fn connect_handler(id: String, state: ServerState) -> Result<impl Reply, Rejection> {
+    let rustpad = get_document(&state, &id).await;
+    let (session, messages) = rustpad.new_poll_session();
+    Ok(warp::reply::json(
+        &serde_json::json!({ "session": session, "messages": messages }),
+    ))
+}
+
+/// Long-poll hold duration. Kept under typical proxy idle timeouts (Zscaler and
+/// similar) so the request looks like an ordinary, promptly-returning HTTPS GET.
+const POLL_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Handler for the `/api/poll/{id}` endpoint (long-polling).
+async fn poll_handler(
+    id: String,
+    query: PollQuery,
+    state: ServerState,
+) -> Result<impl Reply, Rejection> {
+    let rustpad = get_document(&state, &id).await;
+    match rustpad.poll_session(&query.session, POLL_TIMEOUT).await {
+        Some(messages) => Ok(warp::reply::with_status(
+            warp::reply::json(&messages),
+            StatusCode::OK,
+        )),
+        None => Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({ "error": "unknown session" })),
+            StatusCode::CONFLICT,
+        )),
+    }
+}
+
+/// Handler for the `/api/send/{id}` endpoint (long-polling).
+async fn send_handler(
+    id: String,
+    query: PollQuery,
+    body: serde_json::Value,
+    state: ServerState,
+) -> Result<impl Reply, Rejection> {
+    let rustpad = get_document(&state, &id).await;
+    match rustpad.apply_poll_message(&query.session, &body.to_string()) {
+        Ok(()) => Ok(StatusCode::OK),
+        Err(_) => Ok(StatusCode::CONFLICT),
+    }
 }
 
 /// Handler for the `/api/text/{id}` endpoint.
@@ -205,6 +297,24 @@ async fn cleaner(state: ServerState, expiry_days: u32) {
         info!("cleaner removing keys: {:?}", keys);
         for key in keys {
             state.documents.remove(&key);
+        }
+    }
+}
+
+/// How often to sweep for idle long-polling sessions.
+const SESSION_SWEEP_INTERVAL: Duration = Duration::from_secs(15);
+
+/// A polling session is dropped if it has not polled or sent within this window.
+/// Comfortably larger than `POLL_TIMEOUT` so a client mid-poll is never reaped.
+const SESSION_MAX_IDLE: Duration = Duration::from_secs(45);
+
+/// Removes idle long-polling sessions across all documents, freeing their
+/// presence (users and cursors) just as a WebSocket disconnect would.
+async fn session_cleaner(state: ServerState) {
+    loop {
+        time::sleep(SESSION_SWEEP_INTERVAL).await;
+        for entry in &*state.documents {
+            entry.rustpad.sweep_sessions(SESSION_MAX_IDLE);
         }
     }
 }

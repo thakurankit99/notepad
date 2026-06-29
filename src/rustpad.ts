@@ -24,9 +24,142 @@ export type UserInfo = {
   readonly hue: number;
 };
 
+/** Callbacks a transport uses to drive the Rustpad client. */
+type TransportCallbacks = {
+  readonly onOpen: () => void;
+  readonly onClose: () => void;
+  readonly onMessage: (msg: ServerMsg) => void;
+};
+
+/** A bidirectional channel carrying Rustpad protocol messages. */
+interface Transport {
+  send(data: string): void;
+  close(): void;
+}
+
+/** WebSocket transport — the default, used whenever the network permits it. */
+class WsTransport implements Transport {
+  private readonly ws: WebSocket;
+
+  constructor(uri: string, cb: TransportCallbacks) {
+    const ws = new WebSocket(uri);
+    this.ws = ws;
+    ws.onopen = () => cb.onOpen();
+    ws.onclose = () => cb.onClose();
+    ws.onmessage = ({ data }) => {
+      if (typeof data === "string") {
+        cb.onMessage(JSON.parse(data));
+      }
+    };
+  }
+
+  send(data: string) {
+    this.ws.send(data);
+  }
+
+  close() {
+    this.ws.close();
+  }
+}
+
+/**
+ * HTTP long-polling transport.
+ *
+ * Fallback for networks where `WsTransport` cannot connect — most commonly a
+ * proxy that blocks the WebSocket `Upgrade` handshake (returning 403). It
+ * carries the exact same protocol messages over ordinary HTTPS requests: a
+ * `connect` to open a session, repeated `poll` requests to receive messages,
+ * and `send` requests to transmit them. Because these are plain GET/POST calls
+ * to the same origin as the page, they pass wherever the page itself loaded.
+ */
+class PollTransport implements Transport {
+  private readonly base: string;
+  private readonly docId: string;
+  private readonly cb: TransportCallbacks;
+  private session?: string;
+  private closed: boolean = false;
+
+  constructor(uri: string, cb: TransportCallbacks) {
+    this.cb = cb;
+    // Derive the HTTP base from the WebSocket URI:
+    //   wss://host/api/socket/{id}  ->  base "https://host/api", doc "{id}"
+    const httpUri = uri.replace(/^ws/, "http");
+    const match = httpUri.match(/^(.*)\/socket\/([^/]+)$/);
+    if (!match) {
+      throw new Error(`cannot derive polling URL from "${uri}"`);
+    }
+    this.base = match[1];
+    this.docId = match[2];
+    void this.start();
+  }
+
+  private async start() {
+    try {
+      const res = await fetch(`${this.base}/connect/${this.docId}`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error(`connect failed: ${res.status}`);
+      const { session, messages } = await res.json();
+      if (this.closed) return;
+      this.session = session;
+      this.cb.onOpen();
+      for (const msg of messages as ServerMsg[]) this.cb.onMessage(msg);
+      void this.pollLoop();
+    } catch {
+      this.fail();
+    }
+  }
+
+  private async pollLoop() {
+    while (!this.closed && this.session) {
+      let messages: ServerMsg[];
+      try {
+        const res = await fetch(
+          `${this.base}/poll/${this.docId}?session=${this.session}`,
+        );
+        if (res.status === 409) {
+          // Session expired or unknown; drop it and let the client reconnect.
+          this.fail();
+          return;
+        }
+        if (!res.ok) throw new Error(`poll failed: ${res.status}`);
+        messages = await res.json();
+      } catch {
+        this.fail();
+        return;
+      }
+      if (this.closed) return;
+      for (const msg of messages) this.cb.onMessage(msg);
+    }
+  }
+
+  send(data: string) {
+    if (this.closed || !this.session) return;
+    void fetch(`${this.base}/send/${this.docId}?session=${this.session}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: data,
+    }).catch(() => {
+      // A dropped send is recovered by the OT resync on the next reconnect.
+    });
+  }
+
+  close() {
+    this.closed = true;
+  }
+
+  private fail() {
+    if (this.closed) return;
+    this.closed = true;
+    this.session = undefined;
+    this.cb.onClose();
+  }
+}
+
 /** Browser client for Rustpad. */
 class Rustpad {
-  private ws?: WebSocket;
+  private transport?: Transport;
+  private usePoll: boolean = false;
   private connecting?: boolean;
   private recentFailures: number = 0;
   private readonly model: editor.ITextModel;
@@ -93,13 +226,13 @@ class Rustpad {
     this.onCursorHandle.dispose();
     this.onChangeHandle.dispose();
     window.removeEventListener("beforeunload", this.beforeUnload);
-    this.ws?.close();
+    this.transport?.close();
   }
 
   /** Try to set the language of the editor, if connected. */
   setLanguage(language: string): boolean {
-    this.ws?.send(`{"SetLanguage":${JSON.stringify(language)}}`);
-    return this.ws !== undefined;
+    this.transport?.send(`{"SetLanguage":${JSON.stringify(language)}}`);
+    return this.transport !== undefined;
   }
 
   /** Set the user's information. */
@@ -109,51 +242,60 @@ class Rustpad {
   }
 
   /**
-   * Attempts a WebSocket connection.
+   * Attempts a connection, using the WebSocket transport or, once a WebSocket
+   * has been seen to fail outright, the HTTP long-polling transport.
    *
-   * Safety Invariant: Until this WebSocket connection is closed, no other
-   * connections will be attempted because either `this.ws` or
+   * Safety Invariant: Until the current connection is closed, no other
+   * connections will be attempted because either `this.transport` or
    * `this.connecting` will be set to a truthy value.
    *
-   * Liveness Invariant: After this WebSocket connection closes, either through
-   * error or successful end, both `this.connecting` and `this.ws` will be set
-   * to falsy values.
+   * Liveness Invariant: After the connection closes, either through error or
+   * successful end, both `this.connecting` and `this.transport` will be set to
+   * falsy values.
    */
   private tryConnect() {
-    if (this.connecting || this.ws) return;
+    if (this.connecting || this.transport) return;
     this.connecting = true;
-    const ws = new WebSocket(this.options.uri);
-    ws.onopen = () => {
-      this.connecting = false;
-      this.ws = ws;
-      this.options.onConnected?.();
-      this.users = {};
-      this.options.onChangeUsers?.(this.users);
-      this.sendInfo();
-      this.sendCursorData();
-      if (this.outstanding) {
-        this.sendOperation(this.outstanding);
-      }
-    };
-    ws.onclose = () => {
-      if (this.ws) {
-        this.ws = undefined;
-        this.options.onDisconnected?.();
-        if (++this.recentFailures >= 5) {
-          // If we disconnect 5 times within 15 reconnection intervals, then the
-          // client is likely desynchronized and needs to refresh.
-          this.dispose();
-          this.options.onDesynchronized?.();
-        }
-      } else {
+
+    let transport: Transport;
+    const callbacks: TransportCallbacks = {
+      onOpen: () => {
         this.connecting = false;
-      }
+        this.transport = transport;
+        this.options.onConnected?.();
+        this.users = {};
+        this.options.onChangeUsers?.(this.users);
+        this.sendInfo();
+        this.sendCursorData();
+        if (this.outstanding) {
+          this.sendOperation(this.outstanding);
+        }
+      },
+      onClose: () => {
+        if (this.transport) {
+          this.transport = undefined;
+          this.options.onDisconnected?.();
+          if (++this.recentFailures >= 5) {
+            // If we disconnect 5 times within 15 reconnection intervals, then the
+            // client is likely desynchronized and needs to refresh.
+            this.dispose();
+            this.options.onDesynchronized?.();
+          }
+        } else {
+          // The transport never opened. A WebSocket that fails to connect at all
+          // usually means the network is blocking the upgrade (e.g. a proxy
+          // returning 403), so fall back to HTTP long-polling from now on. The
+          // reconnect interval will retry using the polling transport.
+          this.connecting = false;
+          this.usePoll = true;
+        }
+      },
+      onMessage: (msg) => this.handleMessage(msg),
     };
-    ws.onmessage = ({ data }) => {
-      if (typeof data === "string") {
-        this.handleMessage(JSON.parse(data));
-      }
-    };
+
+    transport = this.usePoll
+      ? new PollTransport(this.options.uri, callbacks)
+      : new WsTransport(this.options.uri, callbacks);
   }
 
   private handleMessage(msg: ServerMsg) {
@@ -163,7 +305,7 @@ class Rustpad {
       const { start, operations } = msg.History;
       if (start > this.revision) {
         console.warn("History message has start greater than last operation.");
-        this.ws?.close();
+        this.transport?.close();
         return;
       }
       for (let i = this.revision - start; i < operations.length; i++) {
@@ -240,18 +382,18 @@ class Rustpad {
 
   private sendOperation(operation: OpSeq) {
     const op = operation.to_string();
-    this.ws?.send(`{"Edit":{"revision":${this.revision},"operation":${op}}}`);
+    this.transport?.send(`{"Edit":{"revision":${this.revision},"operation":${op}}}`);
   }
 
   private sendInfo() {
     if (this.myInfo) {
-      this.ws?.send(`{"ClientInfo":${JSON.stringify(this.myInfo)}}`);
+      this.transport?.send(`{"ClientInfo":${JSON.stringify(this.myInfo)}}`);
     }
   }
 
   private sendCursorData() {
     if (!this.buffer) {
-      this.ws?.send(`{"CursorData":${JSON.stringify(this.cursorData)}}`);
+      this.transport?.send(`{"CursorData":${JSON.stringify(this.cursorData)}}`);
     }
   }
 
