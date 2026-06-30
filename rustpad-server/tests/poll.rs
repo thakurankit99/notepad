@@ -5,6 +5,7 @@
 //! convergence with a regular WebSocket client on the same document.
 
 use anyhow::Result;
+use base64::Engine;
 use common::*;
 use operational_transform::OperationSeq;
 use rustpad_server::{server, ServerConfig};
@@ -49,10 +50,13 @@ async fn poll_send(
     session: &str,
     msg: &Value,
 ) -> u16 {
+    // The send body is base64-encoded (so an intermediary WAF cannot inspect
+    // the document content); mirror that here.
+    let encoded = base64::engine::general_purpose::STANDARD.encode(msg.to_string());
     warp::test::request()
         .method("POST")
         .path(&format!("/api/send/{}?session={}", id, session))
-        .json(msg)
+        .body(encoded)
         .reply(filter)
         .await
         .status()

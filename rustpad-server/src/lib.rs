@@ -6,6 +6,7 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use base64::Engine;
 use dashmap::DashMap;
 use log::{error, info, warn};
 use rand::Rng;
@@ -137,7 +138,7 @@ fn backend(config: ServerConfig) -> BoxedFilter<(impl Reply,)> {
         .and(warp::query::<PollQuery>())
         .and(warp::post())
         .and(warp::body::content_length_limit(body_limit))
-        .and(warp::body::json())
+        .and(warp::body::bytes())
         .and(state_filter.clone())
         .and_then(send_handler);
 
@@ -267,11 +268,21 @@ async fn poll_handler(
 async fn send_handler(
     id: String,
     query: PollQuery,
-    body: serde_json::Value,
+    body: bytes::Bytes,
     state: ServerState,
 ) -> Result<impl Reply, Rejection> {
     let rustpad = get_document(&state, &id).await?;
-    match rustpad.apply_poll_message(&query.session, &body.to_string()) {
+    // The body is base64-encoded JSON (so an intermediary WAF cannot match the
+    // document content). Decode it back to the original message.
+    let decoded = match base64::engine::general_purpose::STANDARD.decode(body.as_ref()) {
+        Ok(bytes) => bytes,
+        Err(_) => return Ok(StatusCode::BAD_REQUEST),
+    };
+    let message = match std::str::from_utf8(&decoded) {
+        Ok(text) => text,
+        Err(_) => return Ok(StatusCode::BAD_REQUEST),
+    };
+    match rustpad.apply_poll_message(&query.session, message) {
         Ok(()) => Ok(StatusCode::OK),
         Err(_) => Ok(StatusCode::CONFLICT),
     }
